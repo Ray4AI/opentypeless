@@ -1,0 +1,99 @@
+name: Windows Setup (fork)
+
+# Fork-only build for the Ask empty-answer fix. The upstream `release.yml`
+# hard-fails without RELEASE_TOKEN / TAURI_SIGNING_PRIVATE_KEY / Apple / SignPath
+# secrets, none of which exist on a fork, so this workflow builds one unsigned
+# x64 NSIS installer and uploads it as a release asset.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/publish (e.g. v1.1.50-askfix.1)'
+        required: true
+        default: 'v1.1.50-askfix.1'
+  push:
+    tags:
+      - 'v*-askfix*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync version from tag
+        shell: bash
+        run: |
+          TAG_VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          # Strip a local build suffix so Cargo/npm never see an invalid semver.
+          VERSION="${TAG_VERSION#v}"
+          VERSION="${VERSION%%+*}"
+          echo "VITE_APP_VERSION=v$VERSION" >> "$GITHUB_ENV"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));c.version='$VERSION';fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(c,null,2)+'\n');"
+          node -e "const fs=require('fs');let c=fs.readFileSync('src-tauri/Cargo.toml','utf8');c=c.replace(/^version = \".*\"/m,'version = \"$VERSION\"');fs.writeFileSync('src-tauri/Cargo.toml',c);"
+          echo "Building version $VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build type/lint gates
+        shell: bash
+        run: |
+          npx tsc --noEmit -p tsconfig.json
+          npx eslint src/
+          npx vitest run
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Build Windows installer (NSIS, x64, unsigned)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target x86_64-pc-windows-msvc --bundles nsis
+          release: 'false'
+
+      - name: Upload installer to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          found="$(find src-tauri/target -type f -name '*_x64-setup.exe' -print -quit)"
+          if [ -z "$found" ]; then
+            echo "::error::No *_x64-setup.exe produced."
+            find src-tauri/target -type f -name '*.exe' | head -20
+            exit 1
+          fi
+          echo "Artifact: $found"
+          if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title "OpenTypeless $TAG_NAME (Ask fix, fork)" \
+              --notes "Fork build with the Ask empty-answer fix (BYOK output budget 80 -> 4096) plus an Advanced settings pane. Unsigned."
+          fi
+          gh release upload "$TAG_NAME" "$found" --clobber
+          echo "Published:"
+          gh release view "$TAG_NAME"

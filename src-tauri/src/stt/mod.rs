@@ -17,6 +17,7 @@ use crate::error::AppError;
 use whisper_compat::{WhisperCompatConfig, WhisperCompatProvider};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SttConfig {
     pub api_key: String,
     pub language: Option<String>,

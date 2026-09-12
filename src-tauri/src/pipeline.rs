@@ -2154,8 +2154,11 @@ impl PipelineHandle {
             api_key: llm_api_key,
             model: config.llm_model.clone(),
             base_url: config.llm_base_url.clone(),
-            max_tokens: 4096,
-            temperature: 0.3,
+            max_tokens: config.polish_max_tokens.max(16),
+            temperature: config.polish_temperature,
+            system_prompt_append: config.polish_system_prompt_append.clone(),
+            request_overrides: config.polish_request_overrides().unwrap_or_default(),
+            timeout_secs: config.llm_request_timeout_secs,
         };
         let provider = llm::create_provider(&config.llm_provider, Some(self.shared_client.clone()));
 

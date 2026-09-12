@@ -239,6 +239,17 @@ export interface AppConfig {
   history_max_entries: number
   ui_language: string
   capsule_auto_hide: boolean
+  // Advanced (power-user) overrides — see src-tauri/src/llm/advanced.rs
+  ask_max_tokens: number
+  ask_temperature: number
+  ask_system_prompt: string
+  ask_request_timeout_secs: number
+  polish_max_tokens: number
+  polish_temperature: number
+  polish_system_prompt_append: string
+  llm_request_timeout_secs: number
+  ask_request_extra_params: string
+  polish_request_extra_params: string
 }
 
 export type TestStatus = 'idle' | 'testing' | 'success' | 'error'
@@ -788,6 +799,16 @@ const defaultConfig: AppConfig = {
   history_max_entries: 5000,
   ui_language: 'en',
   capsule_auto_hide: true,
+  ask_max_tokens: 4096,
+  ask_temperature: 0.2,
+  ask_system_prompt: '',
+  ask_request_timeout_secs: 120,
+  polish_max_tokens: 4096,
+  polish_temperature: 0.3,
+  polish_system_prompt_append: '',
+  llm_request_timeout_secs: 120,
+  ask_request_extra_params: '',
+  polish_request_extra_params: '',
 }
 
 export const useAppStore = create<AppState>((set) => ({

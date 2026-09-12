@@ -50,6 +50,16 @@ type SafeScalarKey =
   | 'history_max_entries'
   | 'ui_language'
   | 'capsule_auto_hide'
+  | 'ask_max_tokens'
+  | 'ask_temperature'
+  | 'ask_system_prompt'
+  | 'ask_request_timeout_secs'
+  | 'polish_max_tokens'
+  | 'polish_temperature'
+  | 'polish_system_prompt_append'
+  | 'llm_request_timeout_secs'
+  | 'ask_request_extra_params'
+  | 'polish_request_extra_params'
 
 export type BackupSettings = Partial<Pick<AppConfig, SafeScalarKey>> & {
   voice_routing_flags?: VoiceRoutingFlags
@@ -179,6 +189,16 @@ export function createBackupSettings(config: AppConfig): BackupSettings {
     history_max_entries: config.history_max_entries,
     ui_language: config.ui_language,
     capsule_auto_hide: config.capsule_auto_hide,
+    ask_max_tokens: config.ask_max_tokens,
+    ask_temperature: config.ask_temperature,
+    ask_system_prompt: config.ask_system_prompt,
+    ask_request_timeout_secs: config.ask_request_timeout_secs,
+    polish_max_tokens: config.polish_max_tokens,
+    polish_temperature: config.polish_temperature,
+    polish_system_prompt_append: config.polish_system_prompt_append,
+    llm_request_timeout_secs: config.llm_request_timeout_secs,
+    ask_request_extra_params: config.ask_request_extra_params,
+    polish_request_extra_params: config.polish_request_extra_params,
   }
 
   if (config.voice_routing_flags) {
@@ -233,6 +253,16 @@ const SAFE_SCALAR_KEYS: readonly SafeScalarKey[] = [
   'history_max_entries',
   'ui_language',
   'capsule_auto_hide',
+  'ask_max_tokens',
+  'ask_temperature',
+  'ask_system_prompt',
+  'ask_request_timeout_secs',
+  'polish_max_tokens',
+  'polish_temperature',
+  'polish_system_prompt_append',
+  'llm_request_timeout_secs',
+  'ask_request_extra_params',
+  'polish_request_extra_params',
 ]
 
 function isRecord(value: unknown): value is Record<string, unknown> {

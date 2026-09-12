@@ -408,6 +408,16 @@ export async function askAnything(question: string): Promise<string> {
   return invoke('ask_anything', { question: question.trim() })
 }
 
+export interface AskPromptDefaults {
+  plain: string
+  withContext: string
+}
+
+/** Built-in Ask system prompts, so the Advanced settings UI shows real defaults. */
+export async function getAskPromptDefaults(): Promise<AskPromptDefaults> {
+  return invoke('get_ask_prompt_defaults')
+}
+
 export async function showAskWindow(): Promise<void> {
   return invoke('show_ask_window')
 }

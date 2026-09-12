@@ -8,6 +8,7 @@ import { SttPane } from './SttPane'
 import { LlmPane } from './LlmPane'
 import { DictionaryPane } from './DictionaryPane'
 import { ScenesPane } from './ScenesPane'
+import { AdvancedPane } from './AdvancedPane'
 import { AboutPane } from './AboutPane'
 import { DirtyBar } from './shared/DirtyBar'
 import { useDirtyConfig } from './shared/useDirtyConfig'
@@ -18,6 +19,7 @@ const paneTitleKeys: Record<PaneId, string> = {
   llm: 'settings.aiPolish',
   dictionary: 'settings.dictionary',
   scenes: 'settings.scenes',
+  advanced: 'settings.advanced',
   about: 'settings.about',
 }
 
@@ -81,6 +83,7 @@ export function Settings() {
               {activePane === 'llm' && <LlmPane />}
               {activePane === 'dictionary' && <DictionaryPane />}
               {activePane === 'scenes' && <ScenesPane />}
+              {activePane === 'advanced' && <AdvancedPane />}
               {activePane === 'about' && <AboutPane />}
             </motion.div>
           </div>

@@ -1214,6 +1214,7 @@ pub fn run() {
             stop_recording,
             abort_recording,
             commands::ask::ask_anything,
+            commands::ask::get_ask_prompt_defaults,
             commands::ask::start_ask_dictation,
             commands::ask::stop_ask_dictation,
             commands::ask::start_ask_flow,

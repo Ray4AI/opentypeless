@@ -17,6 +17,15 @@ const SCENE_NAME_MAX_CHARS: usize = 80;
 const SCENE_DESCRIPTION_MAX_CHARS: usize = 240;
 pub(crate) const SCENE_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_HISTORY_MAX_ENTRIES: u32 = 5000;
+/// Ask shares the polish output budget by default. A reasoning model spends
+/// thinking tokens out of the *same* `max_tokens` allowance, so a tiny cap
+/// silently produces HTTP 200 with an empty `content` field.
+pub const DEFAULT_ASK_MAX_TOKENS: u32 = 4096;
+pub const DEFAULT_ASK_TEMPERATURE: f64 = 0.2;
+pub const DEFAULT_ASK_REQUEST_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_POLISH_MAX_TOKENS: u32 = 4096;
+pub const DEFAULT_POLISH_TEMPERATURE: f64 = 0.3;
+pub const DEFAULT_LLM_REQUEST_TIMEOUT_SECS: u64 = 120;
 pub const MAX_BACKUP_DICTIONARY_ENTRIES: usize = 10_000;
 pub const MAX_BACKUP_CORRECTION_RULES: usize = 10_000;
 pub const MAX_HISTORY_RETENTION_DAYS: u32 = 3650;
@@ -379,6 +388,23 @@ pub struct AppConfig {
     pub history_max_entries: u32,
     pub ui_language: String,
     pub capsule_auto_hide: bool,
+    /// ── Advanced (power-user) overrides ─────────────────────────────────
+    /// Ask Anything output token budget. Default matches the polish budget so a
+    /// reasoning model can never starve its own answer.
+    pub ask_max_tokens: u32,
+    pub ask_temperature: f64,
+    /// Replaces the built-in Ask system prompt when non-empty.
+    pub ask_system_prompt: String,
+    pub ask_request_timeout_secs: u64,
+    pub polish_max_tokens: u32,
+    pub polish_temperature: f64,
+    /// Appended to the generated polish/translate system prompt when non-empty.
+    pub polish_system_prompt_append: String,
+    pub llm_request_timeout_secs: u64,
+    /// JSON object merged into the Ask `/chat/completions` request body.
+    pub ask_request_extra_params: String,
+    /// JSON object merged into the polish/translate request body.
+    pub polish_request_extra_params: String,
 }
 
 impl Default for AppConfig {
@@ -436,6 +462,16 @@ impl Default for AppConfig {
             history_max_entries: DEFAULT_HISTORY_MAX_ENTRIES,
             ui_language: "en".to_string(),
             capsule_auto_hide: false,
+            ask_max_tokens: DEFAULT_ASK_MAX_TOKENS,
+            ask_temperature: DEFAULT_ASK_TEMPERATURE,
+            ask_system_prompt: String::new(),
+            ask_request_timeout_secs: DEFAULT_ASK_REQUEST_TIMEOUT_SECS,
+            polish_max_tokens: DEFAULT_POLISH_MAX_TOKENS,
+            polish_temperature: DEFAULT_POLISH_TEMPERATURE,
+            polish_system_prompt_append: String::new(),
+            llm_request_timeout_secs: DEFAULT_LLM_REQUEST_TIMEOUT_SECS,
+            ask_request_extra_params: String::new(),
+            polish_request_extra_params: String::new(),
         }
     }
 }
@@ -584,6 +620,62 @@ impl AppConfig {
         self.normalize_hotkey_settings();
         self.normalize_history_settings();
         self.recompute_recording_limit_mirror();
+        self.normalize_advanced_settings();
+    }
+
+    /// Keeps advanced overrides inside usable ranges. Invalid JSON is preserved
+    /// verbatim so the settings UI can show it and the user can fix it; the
+    /// request layer ignores it until it parses.
+    fn normalize_advanced_settings(&mut self) {
+        self.ask_max_tokens =
+            crate::llm::advanced::clamp_max_tokens(self.ask_max_tokens, DEFAULT_ASK_MAX_TOKENS);
+        self.polish_max_tokens = crate::llm::advanced::clamp_max_tokens(
+            self.polish_max_tokens,
+            DEFAULT_POLISH_MAX_TOKENS,
+        );
+        self.ask_temperature =
+            crate::llm::advanced::clamp_temperature(self.ask_temperature, DEFAULT_ASK_TEMPERATURE);
+        self.polish_temperature = crate::llm::advanced::clamp_temperature(
+            self.polish_temperature,
+            DEFAULT_POLISH_TEMPERATURE,
+        );
+        self.ask_request_timeout_secs = crate::llm::advanced::clamp_timeout_secs(
+            self.ask_request_timeout_secs,
+            DEFAULT_ASK_REQUEST_TIMEOUT_SECS,
+        );
+        self.llm_request_timeout_secs = crate::llm::advanced::clamp_timeout_secs(
+            self.llm_request_timeout_secs,
+            DEFAULT_LLM_REQUEST_TIMEOUT_SECS,
+        );
+        self.ask_system_prompt = truncate_prompt(&self.ask_system_prompt);
+        self.polish_system_prompt_append = truncate_prompt(&self.polish_system_prompt_append);
+        self.ask_request_extra_params = self.ask_request_extra_params.trim().to_string();
+        self.polish_request_extra_params = self.polish_request_extra_params.trim().to_string();
+    }
+
+    /// Effective Ask output budget.
+    pub fn ask_output_token_limit(&self) -> u32 {
+        self.ask_max_tokens.max(16)
+    }
+
+    /// Effective Ask request timeout.
+    pub fn ask_request_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.ask_request_timeout_secs.max(5))
+    }
+
+    /// Effective polish/translate request timeout.
+    pub fn llm_request_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.llm_request_timeout_secs.max(5))
+    }
+
+    /// Advanced JSON override for Ask request bodies (ignored when unusable).
+    pub fn ask_request_overrides(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        crate::llm::advanced::parse_request_override(&self.ask_request_extra_params)
+    }
+
+    /// Advanced JSON override for polish/translate request bodies.
+    pub fn polish_request_overrides(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        crate::llm::advanced::parse_request_override(&self.polish_request_extra_params)
     }
 
     fn normalize_insertion_strategy(&mut self) {
@@ -716,6 +808,17 @@ impl AppConfig {
         }
         config.normalize_values();
         Ok(config)
+    }
+}
+
+fn truncate_prompt(value: &str) -> String {
+    if value.chars().count() > crate::llm::advanced::MAX_PROMPT_OVERRIDE_CHARS {
+        value
+            .chars()
+            .take(crate::llm::advanced::MAX_PROMPT_OVERRIDE_CHARS)
+            .collect()
+    } else {
+        value.to_string()
     }
 }
 

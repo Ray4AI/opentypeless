@@ -1,3 +1,4 @@
+pub mod advanced;
 pub mod cloud;
 pub mod context_policy;
 pub mod model_capabilities;
@@ -7,11 +8,13 @@ pub mod protocol;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Map;
 
 use crate::app_detector::types::ContextProfileSummary;
 use crate::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LlmConfig {
     pub provider: String,
     pub api_key: String,
@@ -19,6 +22,15 @@ pub struct LlmConfig {
     pub base_url: String,
     pub max_tokens: u32,
     pub temperature: f64,
+    /// Advanced-settings prompt appended to the generated system prompt.
+    #[serde(default)]
+    pub system_prompt_append: String,
+    /// Advanced-settings JSON object merged into the request body.
+    #[serde(default)]
+    pub request_overrides: Map<String, serde_json::Value>,
+    /// Advanced-settings request timeout in seconds; `0` keeps the built-in policy.
+    #[serde(default)]
+    pub timeout_secs: u64,
 }
 
 impl Default for LlmConfig {
@@ -30,6 +42,9 @@ impl Default for LlmConfig {
             base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
             max_tokens: 4096,
             temperature: 0.3,
+            system_prompt_append: String::new(),
+            request_overrides: Map::new(),
+            timeout_secs: 0,
         }
     }
 }

@@ -57,6 +57,9 @@ impl LlmProvider for OpenAiProvider {
             has_selected_text,
             voice_intent: Some(&req.voice_intent),
         });
+        // Advanced settings can append extra instructions to the polish prompt.
+        let system_prompt =
+            super::advanced::append_prompt(system_prompt, &config.system_prompt_append);
 
         let mut messages = vec![serde_json::json!({ "role": "system", "content": system_prompt })];
         if has_selected_text {
@@ -98,11 +101,22 @@ impl LlmProvider for OpenAiProvider {
             }
         }
 
+        // Advanced settings: merge raw provider parameters last so they can
+        // override the built-in heuristics above.
+        if !config.request_overrides.is_empty() {
+            super::advanced::merge_request_override(&mut body, &config.request_overrides);
+        }
+
         // Retry the initial connection (not once streaming starts)
         #[allow(unused_assignments)]
         let mut response = None;
         let mut last_error: Option<AppError> = None;
         let mut attempt = 0u32;
+        let request_timeout = if config.timeout_secs > 0 {
+            std::time::Duration::from_secs(config.timeout_secs.max(5))
+        } else {
+            protocol::request_timeout(&config.provider, &config.base_url, &config.model)
+        };
 
         loop {
             let request = self
@@ -116,11 +130,7 @@ impl LlmProvider for OpenAiProvider {
                 &config.api_key,
             )
             .json(&body)
-            .timeout(protocol::request_timeout(
-                &config.provider,
-                &config.base_url,
-                &config.model,
-            ))
+            .timeout(request_timeout)
             .send()
             .await
             {
