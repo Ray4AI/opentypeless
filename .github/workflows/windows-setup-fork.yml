@@ -5,16 +5,17 @@ name: Windows Setup (fork)
 # secrets, none of which exist on a fork, so this workflow builds one unsigned
 # x64 NSIS installer and uploads it as a release asset.
 
+# Dispatched manually on purpose. Pushing a `v*` tag would also trigger the
+# upstream `release.yml`, which hard-fails on a fork (it requires signing
+# secrets that do not exist here), producing red runs that look like real
+# build failures.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to create/publish (e.g. v1.1.50-askfix.1)'
+        description: 'Release tag to create/publish (e.g. v0.1.42-askfix.1)'
         required: true
-        default: 'v1.1.50-askfix.1'
-  push:
-    tags:
-      - 'v*-askfix*'
+        default: 'v0.1.42-askfix.1'
 
 permissions:
   contents: write
@@ -29,7 +30,11 @@ jobs:
       - name: Sync version from tag
         shell: bash
         run: |
-          TAG_VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_VERSION="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG_VERSION" ]; then
+            echo "::error::A release tag input is required."
+            exit 1
+          fi
           # Strip a local build suffix so Cargo/npm never see an invalid semver.
           VERSION="${TAG_VERSION#v}"
           VERSION="${VERSION%%+*}"
@@ -78,7 +83,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG_NAME: ${{ github.event.inputs.tag }}
         run: |
           found="$(find src-tauri/target -type f -name '*_x64-setup.exe' -print -quit)"
           if [ -z "$found" ]; then
