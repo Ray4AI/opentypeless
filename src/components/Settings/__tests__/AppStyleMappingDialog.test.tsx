@@ -252,6 +252,14 @@ describe('ManageAppMappingsDialog', () => {
     await waitFor(() =>
       expect(tauri.setCustomAppMappingEnabled).toHaveBeenCalledWith('mapping-1', false),
     )
+    // The optimistic rows update resolves after the async toggle; wait for the
+    // switch to reflect the new state before asserting what Edit receives.
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Enabled' })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      ),
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(onEdit).toHaveBeenCalledWith({ ...mapping, enabled: false })
