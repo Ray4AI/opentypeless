@@ -45,6 +45,7 @@ pub struct BackupHistoryEntry {
     output_status: Option<String>,
     #[serde(default)]
     output_error: Option<String>,
+    pending_audio_path: Option<String>,
     // Pre-context backups used app_name instead of a normalized context label.
     #[serde(default)]
     app_name: Option<String>,
@@ -126,6 +127,11 @@ impl BackupHistoryEntry {
                 self.output_error,
                 2_000,
                 "backup_history_output_error",
+            )?,
+            pending_audio_path: optional_backup_string(
+                self.pending_audio_path,
+                500,
+                "backup_history_pending_audio_path",
             )?,
         })
     }

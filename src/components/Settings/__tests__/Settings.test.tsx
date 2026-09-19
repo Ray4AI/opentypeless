@@ -462,7 +462,7 @@ describe('Settings tab 切换', () => {
     expect(screen.getAllByText('settings.askHotkey')).toHaveLength(1)
     expect(screen.getByText('settings.launchAtStartup')).toBeDefined()
     expect(screen.getByText('settings.saveHistory')).toBeDefined()
-    expect(screen.queryByText('settings.startMinimized')).toBeNull()
+    expect(screen.getByText('settings.startMinimized')).toBeDefined()
     expect(screen.getByText('settings.hideCapsuleWhenIdle')).toBeDefined()
     expect(screen.queryByText('settings.outputDetails')).toBeNull()
     expect(screen.queryByText('settings.diagnostics')).toBeNull()

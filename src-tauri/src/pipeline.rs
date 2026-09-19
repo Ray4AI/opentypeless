@@ -617,9 +617,9 @@ async fn run_streaming_insert_worker(
 }
 
 fn take_matching_stt_error(
-    stt_error: &Mutex<Option<(u64, crate::error::UserError)>>,
+    stt_error: &Mutex<Option<(u64, SttTaskError)>>,
     session_id: u64,
-) -> Option<crate::error::UserError> {
+) -> Option<SttTaskError> {
     let mut guard = stt_error.lock().unwrap_or_else(|e| e.into_inner());
     if guard
         .as_ref()
@@ -630,20 +630,46 @@ fn take_matching_stt_error(
     None
 }
 
+/// A failed STT task: the user-facing error plus, when the recording was kept
+/// on disk, the path of the persisted audio so the history entry can offer a
+/// re-transcription later.
+#[derive(Debug, Clone)]
+pub(crate) struct SttTaskError {
+    pub user_error: crate::error::UserError,
+    pub pending_audio_path: Option<String>,
+}
+
+impl SttTaskError {
+    fn from_app_error(error: &crate::error::AppError) -> Self {
+        match error {
+            crate::error::AppError::SttFailedWithAudio {
+                source, audio_path, ..
+            } => Self {
+                user_error: source.to_user_error(),
+                pending_audio_path: Some(audio_path.display().to_string()),
+            },
+            other => Self {
+                user_error: other.to_user_error(),
+                pending_audio_path: None,
+            },
+        }
+    }
+}
+
 fn latch_stt_task_error_if_active(
     abort_flag: &AtomicBool,
     active_session_id: &AtomicU64,
-    stt_error: &Mutex<Option<(u64, crate::error::UserError)>>,
+    stt_error: &Mutex<Option<(u64, SttTaskError)>>,
     task_session_id: u64,
     error: &crate::error::AppError,
-) -> Option<crate::error::UserError> {
+) -> Option<SttTaskError> {
     if !should_finalize_stt_task(abort_flag, active_session_id, task_session_id) {
         return None;
     }
-    let user_error = error.to_user_error();
+    let task_error = SttTaskError::from_app_error(error);
     *stt_error.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some((task_session_id, user_error.clone()));
-    Some(user_error)
+        Some((task_session_id, task_error.clone()));
+    Some(task_error)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -703,7 +729,7 @@ pub struct PipelineHandle {
     audio_volume: Arc<Mutex<f32>>,
     accumulated_text: Arc<Mutex<String>>,
     stt_session: Arc<Mutex<Option<SttTaskControl>>>,
-    stt_error: Arc<Mutex<Option<(u64, crate::error::UserError)>>>,
+    stt_error: Arc<Mutex<Option<(u64, SttTaskError)>>>,
     active_stt_session_id: Arc<AtomicU64>,
     active_deadline_session_id: Arc<AtomicU64>,
     abort_flag: Arc<AtomicBool>,
@@ -1282,6 +1308,46 @@ impl PipelineHandle {
             &config_data.stt_provider,
             custom_whisper_config,
             Some(self.shared_client.clone()),
+            if config_data.stt_provider == stt::config::CUSTOM_WHISPER_PROVIDER {
+                let fallback_api_key = if config_data.stt_custom_fallback_api_key.trim().is_empty()
+                {
+                    crate::credentials::resolve_stt_fallback_secret(&SystemCredentialVault)
+                        .unwrap_or_default()
+                } else {
+                    config_data.stt_custom_fallback_api_key.clone()
+                };
+                let fallback_api_key =
+                    (!fallback_api_key.trim().is_empty()).then_some(fallback_api_key);
+                match stt::config::build_custom_whisper_request_policy(
+                    &config_data,
+                    fallback_api_key,
+                ) {
+                    Ok(policy) => Some(policy),
+                    Err(e) => {
+                        let _ = self.app_handle.emit("pipeline:error", e.clone());
+                        *self
+                            .preloaded_config
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = None;
+                        *self
+                            .preloaded_app_ctx
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = None;
+                        *self
+                            .preloaded_dictionary
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = None;
+                        *self
+                            .preloaded_correction_rules
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = None;
+                        self.set_state(PipelineState::Idle);
+                        return Ok(());
+                    }
+                }
+            } else {
+                None
+            },
         ) {
             Ok(provider) => provider,
             Err(e) => {
@@ -1566,14 +1632,15 @@ impl PipelineHandle {
                                 if let Err(error) = provider.send_audio(&data).await {
                                     tracing::error!("STT send audio error: {}", error);
                                     crate::error::emit_cloud_session_invalid(&app_handle, &error);
-                                    if let Some(user_error) = latch_stt_task_error_if_active(
+                                    if let Some(task_error) = latch_stt_task_error_if_active(
                                         abort_flag_ref.as_ref(),
                                         active_session_id_ref.as_ref(),
                                         stt_error_ref.as_ref(),
                                         stt_control.id,
                                         &error,
                                     ) {
-                                        let _ = app_handle.emit("pipeline:error", user_error);
+                                        let _ =
+                                            app_handle.emit("pipeline:error", task_error.user_error);
                                     }
                                     break;
                                 }
@@ -1619,10 +1686,11 @@ impl PipelineHandle {
                                                 &app_handle,
                                                 &e,
                                             );
-                                            let user_error = e.to_user_error();
+                                            let task_error = SttTaskError::from_app_error(&e);
                                             *stt_error_ref.lock().unwrap_or_else(|e| e.into_inner()) =
-                                                Some((stt_control.id, user_error.clone()));
-                                            let _ = app_handle.emit("pipeline:error", user_error);
+                                                Some((stt_control.id, task_error.clone()));
+                                            let _ = app_handle
+                                                .emit("pipeline:error", task_error.user_error);
                                         }
                                     }
                                     None => {}
@@ -1663,11 +1731,13 @@ impl PipelineHandle {
                                     active_session_id_ref.as_ref(),
                                     stt_control.id,
                                 ) {
-                                    let user_error =
-                                        crate::error::AppError::Config(message.clone()).to_user_error();
+                                    let task_error = SttTaskError::from_app_error(
+                                        &crate::error::AppError::Config(message.clone()),
+                                    );
                                     *stt_error_ref.lock().unwrap_or_else(|e| e.into_inner()) =
-                                        Some((stt_control.id, user_error.clone()));
-                                    let _ = app_handle.emit("pipeline:error", user_error);
+                                        Some((stt_control.id, task_error.clone()));
+                                    let _ = app_handle
+                                        .emit("pipeline:error", task_error.user_error);
                                 }
                                 // Break out of the loop — STT has failed, no point
                                 // continuing. Without break, the loop keeps running
@@ -1682,10 +1752,11 @@ impl PipelineHandle {
                                     stt_control.id,
                                 ) {
                                     crate::error::emit_cloud_session_invalid(&app_handle, &e);
-                                    let user_error = e.to_user_error();
+                                    let task_error = SttTaskError::from_app_error(&e);
                                     *stt_error_ref.lock().unwrap_or_else(|e| e.into_inner()) =
-                                        Some((stt_control.id, user_error.clone()));
-                                    let _ = app_handle.emit("pipeline:error", user_error);
+                                        Some((stt_control.id, task_error.clone()));
+                                    let _ = app_handle
+                                        .emit("pipeline:error", task_error.user_error);
                                 }
                                 break;
                             }
@@ -1896,39 +1967,118 @@ impl PipelineHandle {
         drop(guard);
 
         // ── Phase 1: Wait for STT ──────────────────────────────────────
-        let raw_text = match self.wait_for_stt(stt_control.clone()).await? {
-            Some(text) => text,
-            None => {
+        match self.wait_for_stt(stt_control.clone()).await {
+            Ok(Some(raw_text)) => {
+                let voice_intent = route_pipeline_voice_intent(
+                    voice_mode,
+                    &raw_text,
+                    selected_text.as_deref(),
+                    &config,
+                );
+                let stt_elapsed = stop_start.elapsed();
+                tracing::info!(
+                    "[Pipeline Timing] STT finalize: {}ms",
+                    stt_elapsed.as_millis()
+                );
+
+                // Check abort before entering LLM polish and output
+                if self.abort_flag.load(Ordering::SeqCst) {
+                    tracing::info!("Pipeline aborted before LLM/output");
+                    if let Some(control) = &stt_control {
+                        self.clear_stt_session(control.id);
+                    }
+                    return Ok(());
+                }
+
+                self.finish_dictation(
+                    raw_text,
+                    voice_intent,
+                    stt_control,
+                    stop_start,
+                    stt_elapsed,
+                    &config,
+                    &app_ctx,
+                    selected_text,
+                    session_token,
+                    operation_id,
+                    voice_mode,
+                    dictionary_words,
+                    correction_rules,
+                )
+                .await
+            }
+            Ok(None) => {
+                // aborted or no speech detected
                 if let Some(control) = &stt_control {
                     self.clear_stt_session(control.id);
                 }
-                return Ok(());
-            } // aborted or no speech detected
-        };
-        let voice_intent =
-            route_pipeline_voice_intent(voice_mode, &raw_text, selected_text.as_deref(), &config);
-        let stt_elapsed = stop_start.elapsed();
-        tracing::info!(
-            "[Pipeline Timing] STT finalize: {}ms",
-            stt_elapsed.as_millis()
-        );
-
-        // Check abort before entering LLM polish and output
-        if self.abort_flag.load(Ordering::SeqCst) {
-            tracing::info!("Pipeline aborted before LLM/output");
-            if let Some(control) = &stt_control {
-                self.clear_stt_session(control.id);
+                Ok(())
             }
-            return Ok(());
+            Err(Some(task_error)) => {
+                // STT failed after every configured attempt. Keep the failed
+                // recording discoverable: save a history entry with the
+                // persisted audio path so the user can re-transcribe later.
+                let duration_ms = self
+                    .recording_start
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take()
+                    .map(|start| start.elapsed().as_millis() as i64);
+                self.save_history(
+                    "",
+                    "",
+                    &app_ctx,
+                    duration_ms,
+                    &config,
+                    HistoryOutputMetadata {
+                        status: Some("stt_failed".to_string()),
+                        error: task_error.user_error.details.clone(),
+                    },
+                    task_error.pending_audio_path.clone(),
+                )
+                .await;
+                if let Some(control) = &stt_control {
+                    self.clear_stt_session(control.id);
+                }
+                self.set_state(PipelineState::Idle);
+                Ok(())
+            }
+            Err(None) => {
+                if let Some(control) = &stt_control {
+                    self.clear_stt_session(control.id);
+                }
+                Ok(())
+            }
         }
+    }
 
+    /// Phase 2 + 3 of the dictation flow: LLM polish, output and history save.
+    /// Split out so the STT-failure path can return early without duplicating
+    /// the abort checks.
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_dictation(
+        &self,
+        raw_text: String,
+        voice_intent: crate::voice_intent::VoiceIntent,
+        stt_control: Option<SttTaskControl>,
+        stop_start: std::time::Instant,
+        stt_elapsed: std::time::Duration,
+        config: &storage::AppConfig,
+        app_ctx: &RecordingContext,
+        selected_text: Option<String>,
+        session_token: String,
+        operation_id: Option<String>,
+        voice_mode: crate::voice_intent::VoiceMode,
+        dictionary_words: Vec<String>,
+        correction_rules: Vec<llm::CorrectionRule>,
+    ) -> Result<()> {
         // ── Phase 2: LLM polish + output ───────────────────────────────
         let polish_outcome = self
             .polish_text(PolishTextInput {
                 raw_text: &raw_text,
                 voice_mode,
-                config: &config,
-                app_ctx: &app_ctx,
+                config,
+                app_ctx,
                 dictionary_words,
                 correction_rules,
                 selected_text,
@@ -1977,13 +2127,14 @@ impl PipelineHandle {
         self.save_history(
             &raw_text,
             &final_text,
-            &app_ctx,
+            app_ctx,
             duration_ms,
-            &config,
+            config,
             HistoryOutputMetadata {
                 status: polish_outcome.history_output_status,
                 error: polish_outcome.history_output_error,
             },
+            None,
         )
         .await;
 
@@ -1996,8 +2147,12 @@ impl PipelineHandle {
 
     /// Wait for the STT task to complete and return the transcribed text.
     /// Returns `Ok(Some(text))` on success, `Ok(None)` if aborted or no speech,
-    /// or `Err` on failure.
-    async fn wait_for_stt(&self, stt_control: Option<SttTaskControl>) -> Result<Option<String>> {
+    /// or `Err` carrying the latched task error (including a persisted audio
+    /// path when available) on failure.
+    async fn wait_for_stt(
+        &self,
+        stt_control: Option<SttTaskControl>,
+    ) -> Result<Option<String>, Option<SttTaskError>> {
         if let Some(control) = &stt_control {
             tokio::select! {
                 _ = control.done.notified() => {
@@ -2016,9 +2171,9 @@ impl PipelineHandle {
                 tracing::info!("Ignoring stale or aborted STT task");
                 return Ok(None);
             }
-            if take_matching_stt_error(&self.stt_error, control.id).is_some() {
+            if let Some(task_error) = take_matching_stt_error(&self.stt_error, control.id) {
                 self.set_state(PipelineState::Idle);
-                return Ok(None);
+                return Err(Some(task_error));
             }
         } else {
             tracing::warn!("No STT session was available to wait for");
@@ -2622,7 +2777,10 @@ impl PipelineHandle {
         })
     }
 
-    /// Save the transcription to history.
+    /// Save the transcription to history. When STT failed but the recording
+    /// was persisted, `pending_audio_path` is stored so the history pane can
+    /// offer a re-transcription action.
+    #[allow(clippy::too_many_arguments)]
     async fn save_history(
         &self,
         raw_text: &str,
@@ -2631,6 +2789,7 @@ impl PipelineHandle {
         duration_ms: Option<i64>,
         config: &storage::AppConfig,
         output: HistoryOutputMetadata,
+        pending_audio_path: Option<String>,
     ) {
         let policy = config.history_retention_policy();
         if !policy.enabled {
@@ -2660,6 +2819,7 @@ impl PipelineHandle {
             active_scene_prompt_truncated: scene_diagnostics.prompt_truncated,
             output_status: output.status,
             output_error: output.error,
+            pending_audio_path,
         };
         if let Err(e) = self
             .app_handle
@@ -3364,19 +3524,26 @@ mod tests {
         assert!(should_finalize_stt_task(&abort_flag, &active_session_id, 7));
     }
 
+    fn test_stt_task_error(code: &str, details: &str) -> SttTaskError {
+        SttTaskError {
+            user_error: crate::error::UserError {
+                code: code.to_string(),
+                details: Some(details.to_string()),
+                retry_count: 0,
+            },
+            pending_audio_path: None,
+        }
+    }
+
     #[test]
     fn session_error_latch_returns_matching_error() {
         let latch = Mutex::new(Some((
             7,
-            crate::error::UserError {
-                code: "stt_quota_exceeded".to_string(),
-                details: Some("quota".to_string()),
-                retry_count: 0,
-            },
+            test_stt_task_error("stt_quota_exceeded", "quota"),
         )));
 
         let err = take_matching_stt_error(&latch, 7).unwrap();
-        assert_eq!(err.code, "stt_quota_exceeded");
+        assert_eq!(err.user_error.code, "stt_quota_exceeded");
         assert!(latch.lock().unwrap().is_none());
     }
 
@@ -3384,11 +3551,7 @@ mod tests {
     fn session_error_latch_ignores_stale_error() {
         let latch = Mutex::new(Some((
             6,
-            crate::error::UserError {
-                code: "stt_quota_exceeded".to_string(),
-                details: Some("quota".to_string()),
-                retry_count: 0,
-            },
+            test_stt_task_error("stt_quota_exceeded", "quota"),
         )));
 
         assert!(take_matching_stt_error(&latch, 7).is_none());
@@ -3402,14 +3565,16 @@ mod tests {
         let latch = Mutex::new(None);
         let error = crate::error::AppError::Network("socket closed".to_string());
 
-        let user_error =
+        let task_error =
             latch_stt_task_error_if_active(&abort_flag, &active_session_id, &latch, 7, &error)
                 .expect("active send failure should be surfaced");
 
-        assert_eq!(user_error.code, "stt_timeout");
+        assert_eq!(task_error.user_error.code, "stt_timeout");
+        assert!(task_error.pending_audio_path.is_none());
         assert_eq!(
             take_matching_stt_error(&latch, 7)
                 .expect("matching error should be consumable")
+                .user_error
                 .code,
             "stt_timeout"
         );

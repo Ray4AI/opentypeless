@@ -63,7 +63,9 @@ export function SttPane() {
   const volcengineResourceId =
     config.stt_volcengine_resource_id || VOLCENGINE_STT_RESOURCES[0].value
   const credentialSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fallbackCredentialSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [apiKeyDraft, setApiKeyDraft] = useState(legacyApiKey)
+  const [fallbackApiKeyDraft, setFallbackApiKeyDraft] = useState(config.stt_custom_fallback_api_key)
   const [sttDiagnostics, setSttDiagnostics] = useState<SttProviderDiagnostics | null>(null)
   const supportsAppleSpeech = platformCapabilities
     ? platformCapabilities.os === 'macos'
@@ -189,6 +191,20 @@ export function SttPane() {
     },
     [credentialProvider, isAppleSpeech, isCloud],
   )
+
+  const persistFallbackSttCredential = useCallback((value: string, delayMs = 350) => {
+    if (fallbackCredentialSaveRef.current) clearTimeout(fallbackCredentialSaveRef.current)
+    fallbackCredentialSaveRef.current = setTimeout(() => {
+      fallbackCredentialSaveRef.current = null
+      setCredential('stt', 'custom-whisper-fallback', value)
+        .then(() => setCredentialErrorMessage(null))
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          setCredentialErrorMessage(message)
+          console.error('[credentials] failed to save fallback STT credential', error)
+        })
+    }, delayMs)
+  }, [])
 
   const handleTest = async () => {
     setSttTestStatus('testing')
@@ -516,6 +532,67 @@ export function SttPane() {
                     )}
                   </p>
                 )}
+              </FormField>
+
+              <FormField label={t('settings.customSttFallbackBaseUrl')}>
+                <input
+                  value={config.stt_custom_fallback_base_url}
+                  onChange={(e) => updateConfig({ stt_custom_fallback_base_url: e.target.value })}
+                  placeholder="https://openrouter.ai/api/v1"
+                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+                />
+                <p className="text-[11px] text-text-tertiary mt-1.5">
+                  {t('settings.customSttFallbackHint')}
+                </p>
+              </FormField>
+
+              <FormField label={t('settings.customSttFallbackModel')}>
+                <input
+                  value={config.stt_custom_fallback_model}
+                  onChange={(e) => updateConfig({ stt_custom_fallback_model: e.target.value })}
+                  placeholder="openai/whisper-large-v3"
+                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+                />
+              </FormField>
+
+              <FormField label={t('settings.customSttFallbackApiKey')}>
+                <input
+                  type="password"
+                  value={fallbackApiKeyDraft}
+                  onChange={(e) => {
+                    setFallbackApiKeyDraft(e.target.value)
+                    persistFallbackSttCredential(e.target.value)
+                  }}
+                  placeholder={t('settings.customSttFallbackApiKeyPlaceholder')}
+                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+                />
+                <p className="text-[11px] text-text-tertiary mt-1.5">
+                  {t('settings.customSttFallbackApiKeyHint')}
+                </p>
+              </FormField>
+
+              <FormField label={t('settings.customSttRequestTimeout')}>
+                <div className="flex items-center rounded-[10px] border border-border bg-bg-secondary transition-colors focus-within:border-border-focus">
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={config.stt_request_timeout_secs}
+                    onChange={(event) => {
+                      const seconds = Number(event.target.value)
+                      if (Number.isFinite(seconds) && seconds >= 0) {
+                        updateConfig({ stt_request_timeout_secs: Math.floor(seconds) })
+                      }
+                    }}
+                    className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-[13px] text-text-primary outline-none"
+                  />
+                  <span className="pr-3 text-[12px] text-text-secondary" aria-hidden="true">
+                    {t('recordingLimits.secondsUnit')}
+                  </span>
+                </div>
+                <p className="text-[11px] text-text-tertiary mt-1.5">
+                  {t('settings.customSttRequestTimeoutHint')}
+                </p>
               </FormField>
             </>
           )}

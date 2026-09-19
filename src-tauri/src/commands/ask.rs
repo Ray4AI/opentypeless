@@ -376,7 +376,7 @@ fn surface_async_recording_error(
     show_ask_error_window(app, &message);
 }
 
-fn synthetic_operation_id() -> String {
+pub(crate) fn synthetic_operation_id() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -1185,6 +1185,22 @@ pub(crate) async fn start_reserved_ask_dictation(
         } else {
             None
         };
+        let custom_whisper_policy = if config.stt_provider == stt::config::CUSTOM_WHISPER_PROVIDER
+        {
+            let fallback_api_key = if config.stt_custom_fallback_api_key.trim().is_empty() {
+                crate::credentials::resolve_stt_fallback_secret(&crate::credentials::SystemCredentialVault)
+                    .unwrap_or_default()
+            } else {
+                config.stt_custom_fallback_api_key.clone()
+            };
+            let fallback_api_key = (!fallback_api_key.trim().is_empty()).then_some(fallback_api_key);
+            Some(
+                stt::config::build_custom_whisper_request_policy(&config, fallback_api_key)
+                    .map_err(|e| e.to_string())?,
+            )
+        } else {
+            None
+        };
         let operation_id = synthetic_operation_id();
         let stt_config = build_ask_stt_config(&config, stt_api_key, operation_id.clone());
         let managed_cloud_session_token =
@@ -1196,6 +1212,7 @@ pub(crate) async fn start_reserved_ask_dictation(
             &config.stt_provider,
             custom_whisper_config,
             Some(client.inner().clone()),
+            custom_whisper_policy,
         )
         .map_err(|e| e.to_string())?;
         let (mut handle, mut audio_rx) = AudioCaptureHandle::start(AudioConfig::default())

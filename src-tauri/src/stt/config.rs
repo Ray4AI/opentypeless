@@ -5,10 +5,11 @@
 /// - `lib::test_stt_connection`
 /// - `lib::bench_stt_connection`
 ///
-use super::whisper_compat::WhisperCompatConfig;
+use super::whisper_compat::{self, WhisperCompatConfig};
 
 pub const APPLE_SPEECH_PROVIDER: &str = "apple-speech";
 pub const CUSTOM_WHISPER_PROVIDER: &str = "custom-whisper";
+pub const CUSTOM_WHISPER_FALLBACK_PROVIDER: &str = "custom-whisper-fallback";
 pub const CUSTOM_WHISPER_PRESET_SPEACHES: &str = "speaches";
 pub const CUSTOM_WHISPER_PRESET_CUSTOM: &str = "custom";
 pub const DEFAULT_CUSTOM_WHISPER_BASE_URL: &str = "http://localhost:8000/v1";
@@ -96,6 +97,33 @@ pub fn build_custom_whisper_config(
     })
 }
 
+/// Build the fallback provider config for the custom OpenAI-compatible STT.
+/// Returns `Ok(None)` when no fallback is configured (both fields blank).
+pub fn build_custom_whisper_fallback_config(
+    base_url: &str,
+    model: &str,
+) -> Result<Option<WhisperCompatConfig>, String> {
+    let base_url = base_url.trim();
+    let model = model.trim();
+    if base_url.is_empty() && model.is_empty() {
+        return Ok(None);
+    }
+    if base_url.is_empty() {
+        return Err("Fallback base URL is required when a fallback model is set".to_string());
+    }
+    if model.is_empty() {
+        return Err("Fallback model is required when a fallback base URL is set".to_string());
+    }
+
+    Ok(Some(WhisperCompatConfig {
+        provider_name: CUSTOM_WHISPER_FALLBACK_PROVIDER.to_string(),
+        endpoint: normalize_custom_whisper_endpoint(base_url)?,
+        model: model.to_string(),
+        extra_fields: vec![],
+        api_key_required: false,
+    }))
+}
+
 pub fn build_known_whisper_config(provider: &str) -> Option<WhisperCompatConfig> {
     let cfg = get_whisper_config(provider)?;
     Some(WhisperCompatConfig {
@@ -108,6 +136,24 @@ pub fn build_known_whisper_config(provider: &str) -> Option<WhisperCompatConfig>
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
         api_key_required: true,
+    })
+}
+
+/// Build the request policy (timeout + fallback) for the custom
+/// OpenAI-compatible STT from app config. Shared by the dictation pipeline,
+/// the Ask flow, and the history re-transcription command.
+pub fn build_custom_whisper_request_policy(
+    config: &crate::storage::AppConfig,
+    fallback_api_key: Option<String>,
+) -> Result<whisper_compat::WhisperCompatRequestPolicy, String> {
+    let fallback = build_custom_whisper_fallback_config(
+        &config.stt_custom_fallback_base_url,
+        &config.stt_custom_fallback_model,
+    )?;
+    Ok(whisper_compat::WhisperCompatRequestPolicy {
+        timeout_secs: config.stt_request_timeout_secs(),
+        fallback,
+        fallback_api_key,
     })
 }
 
@@ -262,5 +308,40 @@ mod tests {
     fn test_build_custom_whisper_config_requires_model() {
         let err = build_custom_whisper_config("http://localhost:8000/v1", "  ").unwrap_err();
         assert!(err.contains("Model is required"));
+    }
+
+    #[test]
+    fn fallback_config_is_none_when_both_fields_blank() {
+        assert!(build_custom_whisper_fallback_config("", "")
+            .unwrap()
+            .is_none());
+        assert!(build_custom_whisper_fallback_config("  ", " ")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn fallback_config_requires_both_fields() {
+        let err = build_custom_whisper_fallback_config("", "some-model").unwrap_err();
+        assert!(err.contains("Fallback base URL is required"));
+
+        let err = build_custom_whisper_fallback_config("http://localhost:9000/v1", "").unwrap_err();
+        assert!(err.contains("Fallback model is required"));
+    }
+
+    #[test]
+    fn fallback_config_normalizes_endpoint() {
+        let cfg = build_custom_whisper_fallback_config(
+            "https://openrouter.ai/api/v1",
+            "openai/whisper-large-v3",
+        )
+        .unwrap()
+        .expect("fallback should be built");
+        assert_eq!(cfg.provider_name, CUSTOM_WHISPER_FALLBACK_PROVIDER);
+        assert_eq!(
+            cfg.endpoint,
+            "https://openrouter.ai/api/v1/audio/transcriptions"
+        );
+        assert_eq!(cfg.model, "openai/whisper-large-v3");
     }
 }

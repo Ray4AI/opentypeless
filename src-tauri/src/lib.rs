@@ -921,6 +921,11 @@ pub fn run() {
             // Initialize data directory and database
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+
+            // Failed STT recordings live under the app data dir so the history
+            // pane can offer re-transcription after a provider outage.
+            stt::failed_audio::set_failed_audio_dir(data_dir.join("failed-recordings"));
+            tauri::async_runtime::spawn_blocking(stt::failed_audio::cleanup_failed_recordings);
             let db_path = data_dir.join("opentypeless.db");
 
             // Initialize stores
@@ -1253,6 +1258,7 @@ pub fn run() {
             commands::llm::fetch_llm_models,
             commands::history::get_history,
             commands::history::clear_history,
+            commands::history::retry_history_stt,
             commands::backup::restore_backup_data,
             commands::dictionary::get_dictionary,
             commands::dictionary::add_dictionary_entry,

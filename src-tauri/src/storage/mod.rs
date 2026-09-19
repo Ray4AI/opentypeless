@@ -26,6 +26,9 @@ pub const DEFAULT_ASK_REQUEST_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_POLISH_MAX_TOKENS: u32 = 4096;
 pub const DEFAULT_POLISH_TEMPERATURE: f64 = 0.3;
 pub const DEFAULT_LLM_REQUEST_TIMEOUT_SECS: u64 = 120;
+/// Per-provider STT request budget, counted from the end of recording.
+pub const DEFAULT_STT_REQUEST_TIMEOUT_SECS: u64 =
+    crate::stt::whisper_compat::DEFAULT_STT_REQUEST_TIMEOUT_SECS;
 pub const MAX_BACKUP_DICTIONARY_ENTRIES: usize = 10_000;
 pub const MAX_BACKUP_CORRECTION_RULES: usize = 10_000;
 pub const MAX_HISTORY_RETENTION_DAYS: u32 = 3650;
@@ -345,6 +348,16 @@ pub struct AppConfig {
     pub stt_custom_preset: String,
     pub stt_custom_base_url: String,
     pub stt_custom_model: String,
+    /// Optional fallback OpenAI-compatible transcription endpoint. Used when
+    /// the primary attempt chain (including its retries) fails.
+    pub stt_custom_fallback_base_url: String,
+    pub stt_custom_fallback_model: String,
+    /// Optional dedicated API key for the fallback endpoint. When blank the
+    /// primary custom STT key is reused.
+    pub stt_custom_fallback_api_key: String,
+    /// Per-provider request budget in seconds, measured from the end of
+    /// recording (when the transcription request starts).
+    pub stt_request_timeout_secs: u64,
     pub stt_volcengine_resource_id: String,
     pub stt_aliyun_qwen_region: String,
     pub llm_provider: String,
@@ -417,6 +430,10 @@ impl Default for AppConfig {
             stt_custom_preset: crate::stt::config::CUSTOM_WHISPER_PRESET_SPEACHES.to_string(),
             stt_custom_base_url: crate::stt::config::DEFAULT_CUSTOM_WHISPER_BASE_URL.to_string(),
             stt_custom_model: crate::stt::config::DEFAULT_CUSTOM_WHISPER_MODEL.to_string(),
+            stt_custom_fallback_base_url: String::new(),
+            stt_custom_fallback_model: String::new(),
+            stt_custom_fallback_api_key: String::new(),
+            stt_request_timeout_secs: DEFAULT_STT_REQUEST_TIMEOUT_SECS,
             stt_volcengine_resource_id: crate::stt::volcengine::VOLCENGINE_SEEDASR_RESOURCE_ID
                 .to_string(),
             stt_aliyun_qwen_region:
@@ -647,6 +664,9 @@ impl AppConfig {
             self.llm_request_timeout_secs,
             DEFAULT_LLM_REQUEST_TIMEOUT_SECS,
         );
+        self.stt_request_timeout_secs = crate::stt::whisper_compat::clamp_stt_request_timeout_secs(
+            self.stt_request_timeout_secs,
+        );
         self.ask_system_prompt = truncate_prompt(&self.ask_system_prompt);
         self.polish_system_prompt_append = truncate_prompt(&self.polish_system_prompt_append);
         self.ask_request_extra_params = self.ask_request_extra_params.trim().to_string();
@@ -666,6 +686,12 @@ impl AppConfig {
     /// Effective polish/translate request timeout.
     pub fn llm_request_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.llm_request_timeout_secs.max(5))
+    }
+
+    /// Effective per-provider STT request budget, in seconds, counted from the
+    /// end of recording.
+    pub fn stt_request_timeout_secs(&self) -> u64 {
+        crate::stt::whisper_compat::clamp_stt_request_timeout_secs(self.stt_request_timeout_secs)
     }
 
     /// Advanced JSON override for Ask request bodies (ignored when unusable).
@@ -1349,6 +1375,9 @@ pub struct HistoryEntry {
     pub active_scene_prompt_truncated: bool,
     pub output_status: Option<String>,
     pub output_error: Option<String>,
+    /// Path to a persisted recording that failed transcription. When set, the
+    /// history pane offers a re-transcription action for this entry.
+    pub pending_audio_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1425,7 +1454,8 @@ impl HistoryStore {
                 active_scene_prompt_chars INTEGER,
                 active_scene_prompt_truncated INTEGER NOT NULL DEFAULT 0,
                 output_status TEXT,
-                output_error TEXT
+                output_error TEXT,
+                pending_audio_path TEXT
             );",
         )?;
         ensure_history_optional_columns(&conn)?;
@@ -1473,9 +1503,10 @@ impl HistoryStore {
                     active_scene_prompt_chars,
                     active_scene_prompt_truncated,
                     output_status,
-                    output_error
+                    output_error,
+                    pending_audio_path
                 )
-             VALUES (?1, '', '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+             VALUES (?1, '', '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 rusqlite::params![
                     entry.created_at,
                     entry.context_profile_id,
@@ -1495,6 +1526,7 @@ impl HistoryStore {
                     entry.active_scene_prompt_truncated,
                     entry.output_status,
                     entry.output_error,
+                    entry.pending_audio_path,
                 ],
             )?;
         }
@@ -1556,7 +1588,8 @@ impl HistoryStore {
                 active_scene_prompt_chars,
                 active_scene_prompt_truncated,
                 output_status,
-                output_error
+                output_error,
+                pending_audio_path
              FROM history ORDER BY id DESC LIMIT ?1 OFFSET ?2",
         )?;
         let rows = stmt.query_map(rusqlite::params![limit, offset], |row| {
@@ -1582,6 +1615,7 @@ impl HistoryStore {
                 active_scene_prompt_truncated: row.get(16)?,
                 output_status: row.get(17)?,
                 output_error: row.get(18)?,
+                pending_audio_path: row.get(19)?,
             })
         })?;
         let mut entries = Vec::new();
@@ -1589,6 +1623,93 @@ impl HistoryStore {
             entries.push(row?);
         }
         Ok(entries)
+    }
+
+    /// Update the transcription result of a history entry after a successful
+    /// re-transcription. Clears the pending audio path and refreshes the
+    /// timestamp so the retried entry sorts as recent.
+    pub async fn update_retry_success(
+        &self,
+        id: i64,
+        raw_text: &str,
+        polished_text: &str,
+    ) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.execute(
+            "UPDATE history SET raw_text = ?1, polished_text = ?2, pending_audio_path = NULL, created_at = ?3 WHERE id = ?4",
+            rusqlite::params![raw_text, polished_text, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Record a failed re-transcription attempt on the entry so the UI keeps
+    /// offering the retry action (with an updated error message).
+    pub async fn update_retry_failure(&self, id: i64, error: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.execute(
+            "UPDATE history SET output_status = 'stt_failed', output_error = ?1 WHERE id = ?2",
+            rusqlite::params![error, id],
+        )?;
+        Ok(())
+    }
+
+    /// Fetch a single history entry by id, if it exists.
+    pub async fn get(&self, id: i64) -> Result<Option<HistoryEntry>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT
+                id,
+                created_at,
+                context_profile_id,
+                context_label,
+                context_icon_key,
+                context_family,
+                browser_access_status,
+                provider_kind,
+                raw_text,
+                polished_text,
+                language,
+                duration_ms,
+                active_scene_id,
+                active_scene_source,
+                active_scene_name,
+                active_scene_prompt_chars,
+                active_scene_prompt_truncated,
+                output_status,
+                output_error,
+                pending_audio_path
+             FROM history WHERE id = ?1",
+        )?;
+        let mut entries = stmt
+            .query_map(rusqlite::params![id], |row| {
+                Ok(HistoryEntry {
+                    id: row.get(0)?,
+                    created_at: row.get(1)?,
+                    context_profile_id: row.get(2)?,
+                    context_label: row.get(3)?,
+                    context_icon_key: row.get(4)?,
+                    context_family: context_family_from_db(&row.get::<_, String>(5)?),
+                    browser_access_status: BrowserAccessStatus::from_history_value(
+                        row.get::<_, Option<String>>(6)?.as_deref(),
+                    ),
+                    provider_kind: HistoryProviderKind::from_db_value(&row.get::<_, String>(7)?),
+                    raw_text: row.get(8)?,
+                    polished_text: row.get(9)?,
+                    language: row.get(10)?,
+                    duration_ms: row.get(11)?,
+                    active_scene_id: row.get(12)?,
+                    active_scene_source: row.get(13)?,
+                    active_scene_name: row.get(14)?,
+                    active_scene_prompt_chars: row.get(15)?,
+                    active_scene_prompt_truncated: row.get(16)?,
+                    output_status: row.get(17)?,
+                    output_error: row.get(18)?,
+                    pending_audio_path: row.get(19)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(entries.pop())
     }
 
     pub async fn clear(&self) -> Result<()> {
@@ -1669,8 +1790,9 @@ impl HistoryStore {
                             active_scene_prompt_chars,
                             active_scene_prompt_truncated,
                             output_status,
-                            output_error
-                        ) VALUES (?1, '', '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                            output_error,
+                            pending_audio_path
+                        ) VALUES (?1, '', '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                         rusqlite::params![
                             entry.created_at,
                             entry.context_profile_id,
@@ -1690,6 +1812,7 @@ impl HistoryStore {
                             entry.active_scene_prompt_truncated,
                             entry.output_status,
                             entry.output_error,
+                            entry.pending_audio_path,
                         ],
                     )?;
                 }
@@ -1794,6 +1917,10 @@ fn ensure_history_optional_columns(conn: &Connection) -> Result<()> {
         (
             "output_error",
             "ALTER TABLE history ADD COLUMN output_error TEXT",
+        ),
+        (
+            "pending_audio_path",
+            "ALTER TABLE history ADD COLUMN pending_audio_path TEXT",
         ),
         (
             "context_profile_id",
@@ -3325,6 +3452,7 @@ mod tests {
             active_scene_prompt_truncated: false,
             output_status: None,
             output_error: None,
+            pending_audio_path: None,
         }
     }
 

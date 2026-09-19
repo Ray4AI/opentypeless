@@ -48,6 +48,7 @@ const entry: HistoryEntry = {
   active_scene_prompt_truncated: false,
   output_status: null,
   output_error: null,
+  pending_audio_path: null,
 }
 
 describe('History correction creation', () => {

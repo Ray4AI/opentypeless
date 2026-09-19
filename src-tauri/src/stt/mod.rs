@@ -5,6 +5,7 @@ pub mod capabilities;
 pub mod cloud;
 pub mod config;
 pub mod deepgram;
+pub mod failed_audio;
 pub mod managed_audio;
 pub mod volcengine;
 pub mod whisper_compat;
@@ -73,6 +74,7 @@ pub fn create_provider(
     provider_name: &str,
     custom_whisper_config: Option<WhisperCompatConfig>,
     client: Option<reqwest::Client>,
+    custom_whisper_policy: Option<whisper_compat::WhisperCompatRequestPolicy>,
 ) -> Result<Box<dyn SttProvider>, AppError> {
     match provider_name {
         "cloud" => {
@@ -100,9 +102,10 @@ pub fn create_provider(
             let wc = custom_whisper_config.ok_or_else(|| {
                 AppError::Config("Local / Custom Whisper is missing base URL or model".to_string())
             })?;
+            let policy = custom_whisper_policy.unwrap_or_default();
             Ok(match client {
-                Some(ref c) => Box::new(WhisperCompatProvider::with_client(wc, c.clone())),
-                None => Box::new(WhisperCompatProvider::new(wc)),
+                Some(ref c) => Box::new(WhisperCompatProvider::with_policy(wc, policy, c.clone())),
+                None => Box::new(WhisperCompatProvider::new(wc).with_policy_owned(policy)),
             })
         }
         name => {
@@ -124,7 +127,7 @@ mod tests {
 
     #[test]
     fn custom_whisper_requires_explicit_config() {
-        let result = create_provider(config::CUSTOM_WHISPER_PROVIDER, None, None);
+        let result = create_provider(config::CUSTOM_WHISPER_PROVIDER, None, None, None);
         assert!(result.is_err());
     }
 
@@ -136,31 +139,32 @@ mod tests {
         )
         .unwrap();
 
-        let provider = create_provider(config::CUSTOM_WHISPER_PROVIDER, Some(cfg), None).unwrap();
+        let provider =
+            create_provider(config::CUSTOM_WHISPER_PROVIDER, Some(cfg), None, None).unwrap();
         assert_eq!(provider.name(), config::CUSTOM_WHISPER_PROVIDER);
     }
 
     #[test]
     fn creates_volcengine_doubao_realtime_provider() {
-        let provider = create_provider("volcengine-doubao", None, None).unwrap();
+        let provider = create_provider("volcengine-doubao", None, None, None).unwrap();
         assert_eq!(provider.name(), "Volcengine Doubao Realtime ASR");
     }
 
     #[test]
     fn creates_aliyun_qwen3_realtime_provider() {
-        let provider = create_provider("aliyun-qwen3-asr", None, None).unwrap();
+        let provider = create_provider("aliyun-qwen3-asr", None, None, None).unwrap();
         assert_eq!(provider.name(), "Aliyun Qwen3 Realtime ASR");
     }
 
     #[test]
     fn creates_apple_speech_builtin_local_provider() {
-        let provider = create_provider("apple-speech", None, None).unwrap();
+        let provider = create_provider("apple-speech", None, None, None).unwrap();
         assert_eq!(provider.name(), "Apple Speech");
     }
 
     #[test]
     fn unknown_stt_provider_returns_error() {
-        let result = create_provider("not-a-provider", None, None);
+        let result = create_provider("not-a-provider", None, None, None);
         assert!(result.is_err());
     }
 }

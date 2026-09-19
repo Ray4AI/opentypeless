@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
-import { Search, Copy, Trash2, MoreHorizontal } from 'lucide-react'
+import { Search, Copy, Trash2, MoreHorizontal, RefreshCw } from 'lucide-react'
 import { spring } from '../../lib/animations'
 import { useAppStore, type HistoryEntry } from '../../stores/appStore'
-import { addCorrectionRule, clearHistory, getCorrectionRules } from '../../lib/tauri'
+import {
+  addCorrectionRule,
+  clearHistory,
+  getCorrectionRules,
+  getHistory,
+  retryHistoryStt,
+} from '../../lib/tauri'
 import { toast } from '../toast-service'
 import { AppContextMeta } from './AppContextMeta'
 import { CreateCorrectionDialog } from './CreateCorrectionDialog'
@@ -19,6 +25,7 @@ export function History() {
   const [menuEntryId, setMenuEntryId] = useState<number | null>(null)
   const [correctionEntry, setCorrectionEntry] = useState<HistoryEntry | null>(null)
   const [confirmingClear, setConfirmingClear] = useState(false)
+  const [retryingId, setRetryingId] = useState<number | null>(null)
   const menuTriggerEntryId = useRef<number | null>(null)
 
   const closeEntryMenu = useCallback(() => {
@@ -64,6 +71,33 @@ export function History() {
       .catch(() => {
         toast.error(t('history.failedToCopy'))
       })
+  }
+
+  const handleRetryStt = async (entry: HistoryEntry) => {
+    if (retryingId !== null) return
+    setRetryingId(entry.id)
+    try {
+      const outcome = await retryHistoryStt(entry.id)
+      if (outcome.success) {
+        toast.success(t('history.retrySuccess'))
+      } else {
+        toast.error(
+          t('history.retryFailed', {
+            details: outcome.error ?? t('history.retryFailedUnknown'),
+          }),
+        )
+      }
+    } catch (e) {
+      console.error('Failed to retry STT:', e)
+      toast.error(t('history.retryFailed', { details: String(e) }))
+    } finally {
+      setRetryingId(null)
+      try {
+        setHistory(await getHistory(200, 0))
+      } catch (error) {
+        console.error('Failed to refresh history:', error)
+      }
+    }
   }
 
   const handleClear = async () => {
@@ -172,9 +206,15 @@ export function History() {
                       className="group flex items-start gap-3 px-3 py-2.5 rounded-[10px] hover:bg-bg-secondary transition-colors"
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] text-text-primary leading-relaxed">
-                          {entry.polished_text}
-                        </p>
+                        {entry.pending_audio_path ? (
+                          <p className="text-[13px] text-text-tertiary italic leading-relaxed">
+                            {t('history.pendingTranscription')}
+                          </p>
+                        ) : (
+                          <p className="text-[13px] text-text-primary leading-relaxed">
+                            {entry.polished_text}
+                          </p>
+                        )}
                         <AppContextMeta
                           iconKey={entry.context_icon_key}
                           family={entry.context_family}
@@ -191,6 +231,21 @@ export function History() {
                         )}
                       </div>
                       <div className="flex flex-shrink-0 items-center">
+                        {entry.pending_audio_path && (
+                          <motion.button
+                            onClick={() => void handleRetryStt(entry)}
+                            whileTap={{ scaleX: 1.1, scaleY: 0.9 }}
+                            transition={spring.jelly}
+                            disabled={retryingId !== null}
+                            className="opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 p-1.5 rounded-[6px] hover:bg-bg-tertiary transition-all duration-200 bg-transparent border-none cursor-pointer text-text-tertiary hover:text-accent flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                            aria-label={t('history.retryTranscription')}
+                          >
+                            <RefreshCw
+                              size={13}
+                              className={retryingId === entry.id ? 'animate-spin' : ''}
+                            />
+                          </motion.button>
+                        )}
                         <motion.button
                           onClick={() => handleCopy(entry.id, entry.polished_text)}
                           whileTap={{ scaleX: 1.1, scaleY: 0.9 }}

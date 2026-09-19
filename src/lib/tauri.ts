@@ -504,6 +504,19 @@ export async function clearHistory(): Promise<void> {
   return invoke('clear_history')
 }
 
+export interface RetrySttOutcome {
+  success: boolean
+  rawText: string | null
+  polishedText: string | null
+  error: string | null
+  retryable: boolean
+}
+
+/// Re-transcribe a persisted failed recording for a history entry.
+export async function retryHistoryStt(entryId: number): Promise<RetrySttOutcome> {
+  return invoke('retry_history_stt', { entryId })
+}
+
 export interface RestoreBackupResult {
   history: HistoryEntry[]
   dictionary: DictionaryEntry[]

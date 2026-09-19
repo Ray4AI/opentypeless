@@ -252,6 +252,11 @@ export function GeneralPane() {
               label={t('settings.launchAtStartup')}
             />
             <Toggle
+              checked={config.start_minimized}
+              onChange={(checked) => updateConfig({ start_minimized: checked })}
+              label={t('settings.startMinimized')}
+            />
+            <Toggle
               checked={config.history_enabled}
               onChange={(checked) => updateConfig({ history_enabled: checked })}
               label={t('settings.saveHistory')}

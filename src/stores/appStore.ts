@@ -116,6 +116,7 @@ export interface HistoryEntry {
   active_scene_prompt_truncated: boolean
   output_status: string | null
   output_error: string | null
+  pending_audio_path: string | null
 }
 
 export interface ContextProfileSummary {
@@ -195,6 +196,10 @@ export interface AppConfig {
   stt_custom_preset: 'speaches' | 'custom'
   stt_custom_base_url: string
   stt_custom_model: string
+  stt_custom_fallback_base_url: string
+  stt_custom_fallback_model: string
+  stt_custom_fallback_api_key: string
+  stt_request_timeout_secs: number
   stt_volcengine_resource_id: string
   stt_aliyun_qwen_region: AliyunQwenRegion
   stt_language: string
@@ -738,6 +743,10 @@ const defaultConfig: AppConfig = {
   stt_custom_preset: 'speaches',
   stt_custom_base_url: 'http://localhost:8000/v1',
   stt_custom_model: 'Systran/faster-whisper-large-v3',
+  stt_custom_fallback_base_url: '',
+  stt_custom_fallback_model: '',
+  stt_custom_fallback_api_key: '',
+  stt_request_timeout_secs: 8,
   stt_volcengine_resource_id: 'volc.seedasr.sauc.duration',
   stt_aliyun_qwen_region: 'china-mainland',
   stt_language: 'multi',
@@ -790,7 +799,7 @@ const defaultConfig: AppConfig = {
   theme: 'system',
   auto_start: true,
   close_to_tray: true,
-  start_minimized: false,
+  start_minimized: true,
   recording_limit_mode: 'auto',
   custom_recording_limit_seconds: 600,
   max_recording_seconds: 30,

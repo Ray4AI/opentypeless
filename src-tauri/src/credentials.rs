@@ -310,6 +310,14 @@ pub fn resolve_llm_config_secret<V: CredentialSecretReader>(
     resolve_config_secret(&config.llm_api_key, "llm", &config.llm_provider, vault)
 }
 
+/// Resolve the dedicated fallback STT key, if one was stored. Returns an empty
+/// string when unset — callers then reuse the primary custom STT key.
+pub fn resolve_stt_fallback_secret<V: CredentialSecretReader>(vault: &V) -> Result<String> {
+    Ok(vault
+        .get_secret("stt", crate::stt::config::CUSTOM_WHISPER_FALLBACK_PROVIDER)?
+        .unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

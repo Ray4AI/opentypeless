@@ -17,13 +17,25 @@ pub struct UserError {
 pub enum AppError {
     Network(String),
     Timeout(Duration),
-    Api { status: u16, body: String },
+    Api {
+        status: u16,
+        body: String,
+    },
     Auth(String),
     Quota(String),
     LlmQuota(String),
     Output(String),
     Config(String),
     CloudSessionInvalid,
+    /// STT transcription failed after every configured attempt (primary plus
+    /// optional fallback). The failed recording was persisted at `audio_path`
+    /// so the history pane can offer a later re-transcription.
+    SttFailedWithAudio {
+        source: Box<AppError>,
+        audio_path: std::path::PathBuf,
+        audio_len_secs: f64,
+        fallback_attempted: bool,
+    },
 }
 
 const CLOUD_SESSION_INVALID_EVENT: &str = "auth:session-invalid";
@@ -75,10 +87,20 @@ impl AppError {
             AppError::Output(_) => false,
             AppError::Config(_) => false,
             AppError::CloudSessionInvalid => false,
+            AppError::SttFailedWithAudio { source, .. } => source.is_retryable(),
         }
     }
 
     pub fn to_user_error(&self) -> UserError {
+        let (code, details) = self.to_user_error_details();
+        UserError {
+            code,
+            details,
+            retry_count: 0,
+        }
+    }
+
+    pub fn to_user_error_details(&self) -> (String, Option<String>) {
         let (code, details) = match self {
             AppError::Network(msg) => ("stt_timeout".to_string(), Some(msg.clone())),
             AppError::Timeout(_) => ("stt_timeout".to_string(), None),
@@ -95,12 +117,22 @@ impl AppError {
             AppError::Output(msg) => ("output_fallback_clipboard".to_string(), Some(msg.clone())),
             AppError::Config(msg) => ("stt_failed".to_string(), Some(msg.clone())),
             AppError::CloudSessionInvalid => ("stt_failed".to_string(), None),
+            AppError::SttFailedWithAudio { source, .. } => match source.as_ref() {
+                AppError::Network(msg) => ("stt_timeout".to_string(), Some(msg.clone())),
+                AppError::Timeout(_) => ("stt_timeout".to_string(), None),
+                AppError::Api { status, .. } => {
+                    if *status == 401 || *status == 403 {
+                        ("stt_invalid_key".to_string(), None)
+                    } else {
+                        ("stt_failed".to_string(), Some(format!("HTTP {status}")))
+                    }
+                }
+                AppError::Auth(msg) => ("stt_invalid_key".to_string(), Some(msg.clone())),
+                AppError::Quota(msg) => ("stt_quota_exceeded".to_string(), Some(msg.clone())),
+                other => other.to_user_error_details(),
+            },
         };
-        UserError {
-            code,
-            details,
-            retry_count: 0,
-        }
+        (code, details)
     }
 
     pub fn with_retry_count(self, count: u32) -> UserError {
@@ -122,6 +154,19 @@ impl std::fmt::Display for AppError {
             AppError::Output(msg) => write!(f, "Output error: {}", msg),
             AppError::Config(msg) => write!(f, "Config error: {}", msg),
             AppError::CloudSessionInvalid => write!(f, "Managed cloud session is invalid"),
+            AppError::SttFailedWithAudio {
+                source,
+                audio_path,
+                audio_len_secs,
+                fallback_attempted,
+            } => {
+                write!(
+                f,
+                "STT failed ({source}); recording ({audio_len_secs:.1}s) kept at {} for retry{}",
+                audio_path.display(),
+                if *fallback_attempted { " after fallback" } else { "" }
+            )
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import { useAppStore } from '../../stores/appStore'
 import { useRecording } from '../../hooks/useRecording'
 import { useCapsuleResize } from '../../hooks/useCapsuleResize'
 import { stopAskFlow } from '../../lib/tauri'
+import { rememberCapsulePosition } from '../../lib/capsulePosition'
 import { CapsuleIdle } from './CapsuleIdle'
 import { CapsulePreparing } from './CapsulePreparing'
 import { CapsuleRecording } from './CapsuleRecording'
@@ -93,6 +94,9 @@ export function Capsule() {
       if (isDragging.current) {
         isDragging.current = false
         dragStart.current = null
+        // The drag ended — persist the capsule's new position so it can be
+        // restored on the next app start.
+        void rememberCapsulePosition()
         return
       }
       dragStart.current = null

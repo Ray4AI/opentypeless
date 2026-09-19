@@ -16,6 +16,8 @@ type SafeScalarKey =
   | 'stt_custom_preset'
   | 'stt_custom_base_url'
   | 'stt_custom_model'
+  | 'stt_custom_fallback_base_url'
+  | 'stt_custom_fallback_model'
   | 'stt_volcengine_resource_id'
   | 'stt_aliyun_qwen_region'
   | 'llm_provider'
@@ -86,6 +88,8 @@ export function createBackupSettings(config: AppConfig): BackupSettings {
     stt_custom_preset: config.stt_custom_preset,
     stt_custom_base_url: config.stt_custom_base_url,
     stt_custom_model: config.stt_custom_model,
+    stt_custom_fallback_base_url: config.stt_custom_fallback_base_url,
+    stt_custom_fallback_model: config.stt_custom_fallback_model,
     stt_volcengine_resource_id: config.stt_volcengine_resource_id,
     stt_aliyun_qwen_region: config.stt_aliyun_qwen_region,
     llm_provider: config.llm_provider,
@@ -219,6 +223,8 @@ const SAFE_SCALAR_KEYS: readonly SafeScalarKey[] = [
   'stt_custom_preset',
   'stt_custom_base_url',
   'stt_custom_model',
+  'stt_custom_fallback_base_url',
+  'stt_custom_fallback_model',
   'stt_volcengine_resource_id',
   'stt_aliyun_qwen_region',
   'llm_provider',
