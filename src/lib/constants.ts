@@ -5,7 +5,7 @@ export const UI_LANGUAGES = [
 ] as const
 
 export const APP_NAME = 'OpenTypeless'
-export const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'v0.1.42'
+export const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'v0.2.0'
 export const APP_REPO_URL = 'https://github.com/Ray4AI/opentypeless'
 export const APP_LICENSE_URL = 'https://github.com/Ray4AI/opentypeless/blob/main/LICENSE'
 
