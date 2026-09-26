@@ -10,6 +10,7 @@ import {
   setAutoStart,
 } from '../../../lib/tauri'
 import { toast } from '../../toast-service'
+import { autoSyncIfEnabled } from '../../../lib/webdav-sync'
 
 type SaveResult = 'idle' | 'success' | 'error'
 
@@ -48,6 +49,7 @@ export function DirtyBar() {
       await updateConfig(config)
       await refreshHotkeyRegistrationError()
       setSavedConfig(config)
+      autoSyncIfEnabled()
       setSaveResult('success')
       setTimeout(() => {
         setSaveResult('idle')

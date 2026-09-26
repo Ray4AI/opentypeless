@@ -34,8 +34,8 @@ vi.mock('../../../lib/tauri', () => ({
   abortAskDictation: vi.fn().mockResolvedValue(undefined),
   abortRecording: vi.fn().mockResolvedValue(undefined),
   setActiveTranslationTarget: vi.fn().mockResolvedValue({
-    targets: ['en', 'ja'],
-    active_target: 'ja',
+    targets: ['en', 'zh'],
+    active_target: 'zh',
   }),
   setCapsuleAutoHide: vi.fn().mockResolvedValue(undefined),
   stopAskFlow: vi.fn().mockResolvedValue(undefined),
@@ -135,7 +135,7 @@ describe('Capsule flow states', () => {
       activeVoiceMode: 'dictate',
       config: {
         ...useAppStore.getState().config,
-        translation: { targets: ['en', 'ja'], active_target: 'en' },
+        translation: { targets: ['en', 'zh'], active_target: 'en' },
       },
     })
     const { rerender } = render(<Capsule />)
@@ -157,19 +157,19 @@ describe('Capsule flow states', () => {
       activeVoiceMode: 'translate',
       config: {
         ...useAppStore.getState().config,
-        translation: { targets: ['en', 'ja'], active_target: 'en' },
+        translation: { targets: ['en', 'zh'], active_target: 'en' },
       },
     })
     render(<Capsule />)
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'capsule.translationTarget en' }))
     fireEvent.click(screen.getByRole('button', { name: 'capsule.translationTarget en' }))
-    fireEvent.click(screen.getByRole('menuitemradio', { name: '日本語' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '中文' }))
 
-    await waitFor(() => expect(setActiveTranslationTarget).toHaveBeenCalledWith('ja'))
+    await waitFor(() => expect(setActiveTranslationTarget).toHaveBeenCalledWith('zh'))
     expect(invoke).not.toHaveBeenCalledWith('stop_recording')
     expect(invoke).not.toHaveBeenCalledWith('start_recording')
-    expect(useAppStore.getState().config.translation.active_target).toBe('ja')
+    expect(useAppStore.getState().config.translation.active_target).toBe('zh')
   })
 
   it('keeps the capsule shell at 200 by 36 and closes the target menu on Escape', async () => {
@@ -178,7 +178,7 @@ describe('Capsule flow states', () => {
       activeVoiceMode: 'translate',
       config: {
         ...useAppStore.getState().config,
-        translation: { targets: ['en', 'ja'], active_target: 'en' },
+        translation: { targets: ['en', 'zh'], active_target: 'en' },
       },
     })
     const { container } = render(<Capsule />)

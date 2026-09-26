@@ -1,7 +1,5 @@
 pub mod advanced;
-pub mod cloud;
 pub mod context_policy;
-pub mod model_capabilities;
 pub mod openai;
 pub mod prompt;
 pub mod protocol;
@@ -62,7 +60,6 @@ pub struct PolishRequest {
     pub translate_enabled: bool,
     pub target_lang: String,
     pub selected_text: Option<String>,
-    pub operation_id: Option<String>,
     pub voice_intent: crate::voice_intent::VoiceIntent,
 }
 
@@ -130,8 +127,6 @@ pub fn create_provider(
     client: Option<reqwest::Client>,
 ) -> Box<dyn LlmProvider> {
     match (provider_name, client) {
-        ("cloud", Some(c)) => Box::new(cloud::CloudLlmProvider::with_client(c)),
-        ("cloud", None) => Box::new(cloud::CloudLlmProvider::new()),
         (_, Some(c)) => Box::new(openai::OpenAiProvider::with_client(c)),
         (_, None) => Box::new(openai::OpenAiProvider::new()),
     }

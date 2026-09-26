@@ -12,12 +12,6 @@ const TYPE_CHUNK_DELAY_MS: u64 = 5;
 /// Keep every `kwtype` positional argument well below Linux's per-argument limit.
 #[cfg(any(target_os = "linux", test))]
 const KWTYPE_CHUNK_SIZE: usize = 8_192;
-/// Base timeout for macOS main-thread keyboard output.
-#[cfg(target_os = "macos")]
-const MACOS_TYPE_BASE_TIMEOUT_SECS: u64 = 30;
-/// Maximum timeout for macOS main-thread keyboard output.
-#[cfg(target_os = "macos")]
-const MACOS_TYPE_MAX_TIMEOUT_SECS: u64 = 300;
 
 #[cfg(any(target_os = "linux", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,56 +113,12 @@ pub fn check_keyboard_available() -> std::result::Result<(), String> {
     Ok(())
 }
 
-pub struct KeyboardOutput {
-    #[cfg(target_os = "macos")]
-    app_handle: tauri::AppHandle,
-}
+pub struct KeyboardOutput {}
 
 impl KeyboardOutput {
     pub fn new(app_handle: &tauri::AppHandle) -> Self {
-        #[cfg(target_os = "macos")]
-        {
-            Self {
-                app_handle: app_handle.clone(),
-            }
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = app_handle;
-            Self {}
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    async fn type_text_on_main_thread(&self, text: &str) -> Result<(), AppError> {
-        let text = text.to_string();
-        let timeout = macos_type_timeout(&text);
-        let app_handle = self.app_handle.clone();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        app_handle
-            .run_on_main_thread(move || {
-                let result = type_text_sync(&text);
-                let _ = tx.send(result);
-            })
-            .map_err(|e| {
-                AppError::Output(format!(
-                    "Failed to schedule keyboard output on main thread: {}",
-                    e
-                ))
-            })?;
-
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(AppError::Output(
-                "Main thread keyboard output task was dropped".to_string(),
-            )),
-            Err(_) => Err(AppError::Output(format!(
-                "Main thread keyboard output timed out after {:.0}s",
-                timeout.as_secs_f64()
-            ))),
-        }
+        let _ = app_handle;
+        Self {}
     }
 }
 
@@ -177,26 +127,14 @@ impl TextOutput for KeyboardOutput {
     async fn type_text(&self, text: &str) -> Result<InsertResult, AppError> {
         let chars_inserted = text.chars().count();
 
-        #[cfg(target_os = "macos")]
-        {
-            self.type_text_on_main_thread(text).await?;
-            return Ok(InsertResult::inserted(
-                InsertionStrategy::Keyboard,
-                chars_inserted,
-            ));
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            let text = text.to_string();
-            tokio::task::spawn_blocking(move || type_text_sync(&text))
-                .await
-                .map_err(|e| AppError::Output(format!("Spawn blocking error: {}", e)))??;
-            Ok(InsertResult::inserted(
-                InsertionStrategy::Keyboard,
-                chars_inserted,
-            ))
-        }
+        let text = text.to_string();
+        tokio::task::spawn_blocking(move || type_text_sync(&text))
+            .await
+            .map_err(|e| AppError::Output(format!("Spawn blocking error: {}", e)))??;
+        Ok(InsertResult::inserted(
+            InsertionStrategy::Keyboard,
+            chars_inserted,
+        ))
     }
 
     fn mode(&self) -> OutputMode {
@@ -332,20 +270,6 @@ fn type_text_with_kwtype(text: &str) -> Result<(), AppError> {
     }
 
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn macos_type_timeout(text: &str) -> std::time::Duration {
-    let char_count = text.chars().count();
-    let chunk_count = if char_count == 0 {
-        0
-    } else {
-        ((char_count - 1) / TYPE_CHUNK_SIZE) + 1
-    };
-    let seconds =
-        (MACOS_TYPE_BASE_TIMEOUT_SECS + chunk_count as u64).min(MACOS_TYPE_MAX_TIMEOUT_SECS);
-
-    std::time::Duration::from_secs(seconds)
 }
 
 #[cfg(test)]

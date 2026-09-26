@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { isMacPlatform, useAppStore } from '../../stores/appStore'
-import { hasManagedCloudAccess, useAuthStore } from '../../stores/authStore'
+import { useAppStore } from '../../stores/appStore'
 import {
   STT_PROVIDERS,
   LANGUAGES,
-  APPLE_SPEECH_PROVIDER,
   CUSTOM_WHISPER_PROVIDER,
   CUSTOM_STT_DEFAULTS,
   CUSTOM_STT_PRESETS,
@@ -21,7 +19,7 @@ import {
   type SttProviderDiagnostics,
 } from '../../lib/tauri'
 import { FormField } from './shared/FormField'
-import { CheckCircle2, XCircle, Loader2, Crown } from 'lucide-react'
+import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 
 const RECORDING_LIMIT_PRESETS = [30, 60, 120, 300, 600, 1800, 3600]
 const MIN_CUSTOM_RECORDING_SECONDS = 30
@@ -44,17 +42,12 @@ export function SttPane() {
   const setSttTestStatus = useAppStore((s) => s.setSttTestStatus)
   const sttLatencyMs = useAppStore((s) => s.sttLatencyMs)
   const setSttLatencyMs = useAppStore((s) => s.setSttLatencyMs)
-  const platformCapabilities = useAppStore((s) => s.platformCapabilities)
-  const { user } = useAuthStore()
-  const hasCloudAccess = useAuthStore(hasManagedCloudAccess)
   const { t } = useTranslation()
   const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null)
   const [credentialErrorMessage, setCredentialErrorMessage] = useState<string | null>(null)
   const [recordingLimit, setRecordingLimit] = useState<ResolvedSttRecordingLimit | null>(null)
   const [customDurationEntryRequested, setCustomDurationEntryRequested] = useState(false)
 
-  const isCloud = config.stt_provider === 'cloud'
-  const isAppleSpeech = config.stt_provider === APPLE_SPEECH_PROVIDER
   const isCustomWhisper = config.stt_provider === CUSTOM_WHISPER_PROVIDER
   const isVolcengineDoubao = config.stt_provider === 'volcengine-doubao'
   const isAliyunQwen3 = config.stt_provider === 'aliyun-qwen3-asr'
@@ -67,30 +60,11 @@ export function SttPane() {
   const [apiKeyDraft, setApiKeyDraft] = useState(legacyApiKey)
   const [fallbackApiKeyDraft, setFallbackApiKeyDraft] = useState(config.stt_custom_fallback_api_key)
   const [sttDiagnostics, setSttDiagnostics] = useState<SttProviderDiagnostics | null>(null)
-  const supportsAppleSpeech = platformCapabilities
-    ? platformCapabilities.os === 'macos'
-    : isMacPlatform()
-  const visibleSttProviders = STT_PROVIDERS.filter(
-    (provider) => provider.value !== APPLE_SPEECH_PROVIDER || supportsAppleSpeech,
-  )
-  const appleSpeechReady = sttDiagnostics?.ready === true
-  const appleSpeechUnavailable = sttDiagnostics?.ready === false
-  const canTest = isAppleSpeech
-    ? appleSpeechReady
-    : isCustomWhisper
-      ? Boolean(config.stt_custom_base_url.trim() && config.stt_custom_model.trim())
-      : Boolean(apiKeyDraft)
-  const goUpgrade = () => {
-    window.location.hash = '#/upgrade'
-  }
+  const canTest = isCustomWhisper
+    ? Boolean(config.stt_custom_base_url.trim() && config.stt_custom_model.trim())
+    : Boolean(apiKeyDraft)
 
   useEffect(() => {
-    if (isCloud || isAppleSpeech) {
-      setApiKeyDraft('')
-      setCredentialErrorMessage(null)
-      return
-    }
-
     let cancelled = false
     setApiKeyDraft(legacyApiKey)
     setCredentialErrorMessage(null)
@@ -103,17 +77,17 @@ export function SttPane() {
     return () => {
       cancelled = true
     }
-  }, [credentialProvider, isAppleSpeech, isCloud, legacyApiKey])
+  }, [credentialProvider, legacyApiKey])
 
   useEffect(() => {
-    if (!isCustomWhisper && !isAppleSpeech) {
+    if (!isCustomWhisper) {
       setSttDiagnostics(null)
       return
     }
 
     let cancelled = false
     getSttProviderDiagnostics(
-      isAppleSpeech ? '' : apiKeyDraft,
+      apiKeyDraft,
       config.stt_provider,
       isCustomWhisper ? config.stt_custom_base_url : undefined,
       isCustomWhisper ? config.stt_custom_model : undefined,
@@ -134,7 +108,6 @@ export function SttPane() {
     config.stt_custom_base_url,
     config.stt_custom_model,
     config.stt_provider,
-    isAppleSpeech,
     isCustomWhisper,
   ])
 
@@ -176,7 +149,6 @@ export function SttPane() {
 
   const persistSttCredential = useCallback(
     (value: string, delayMs = 350) => {
-      if (isCloud || isAppleSpeech) return
       if (credentialSaveRef.current) clearTimeout(credentialSaveRef.current)
       credentialSaveRef.current = setTimeout(() => {
         credentialSaveRef.current = null
@@ -189,7 +161,7 @@ export function SttPane() {
           })
       }, delayMs)
     },
-    [credentialProvider, isAppleSpeech, isCloud],
+    [credentialProvider],
   )
 
   const persistFallbackSttCredential = useCallback((value: string, delayMs = 350) => {
@@ -274,42 +246,26 @@ export function SttPane() {
     canEnterCustomDuration &&
     (customDurationEntryRequested ||
       (config.recording_limit_mode === 'custom' && !savedDurationIsPreset))
-  const isManagedCapability =
-    recordingLimit?.capability.explanationKey === 'recordingLimits.reasons.managedCapability'
-  const isManagedFallback =
-    recordingLimit?.capability.explanationKey === 'recordingLimits.reasons.managedFallback'
   const isProviderFixedLimit =
     !canEnterCustomDuration &&
     recordingLimit?.capability.explanationKey === 'recordingLimits.reasons.providerDuration'
   const recordingLimitHelper = recordingLimit
     ? showCustomDurationEntry
-      ? t(
-          isManagedCapability
-            ? 'recordingLimits.allowedCloudRange'
-            : 'recordingLimits.allowedRangeWithReason',
-          {
-            min: formatRecordingDuration(MIN_CUSTOM_RECORDING_SECONDS, t),
-            max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
-            reason: t(recordingLimit.capability.explanationKey),
-          },
-        )
+      ? t('recordingLimits.allowedRangeWithReason', {
+          min: formatRecordingDuration(MIN_CUSTOM_RECORDING_SECONDS, t),
+          max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
+          reason: t(recordingLimit.capability.explanationKey),
+        })
       : config.recording_limit_mode === 'custom'
         ? isProviderFixedLimit
           ? t('recordingLimits.providerFixedLimit', {
               max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
             })
-          : isManagedCapability
-            ? t('recordingLimits.currentSelectionWithCloudMax', {
-                current: formatRecordingDuration(recordingLimit.effectiveMaxSeconds, t),
-                max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
-              })
-            : isManagedFallback
-              ? t(recordingLimit.capability.explanationKey)
-              : t('recordingLimits.currentSelectionWithLimit', {
-                  current: formatRecordingDuration(recordingLimit.effectiveMaxSeconds, t),
-                  max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
-                  reason: t(recordingLimit.capability.explanationKey),
-                })
+          : t('recordingLimits.currentSelectionWithLimit', {
+              current: formatRecordingDuration(recordingLimit.effectiveMaxSeconds, t),
+              max: formatRecordingDuration(recordingLimit.capability.hardMaxSeconds, t),
+              reason: t(recordingLimit.capability.explanationKey),
+            })
         : t(recordingLimit.capability.explanationKey)
     : null
 
@@ -361,7 +317,7 @@ export function SttPane() {
           }}
           className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
         >
-          {visibleSttProviders.map((p) => (
+          {STT_PROVIDERS.map((p) => (
             <option key={p.value} value={p.value}>
               {t(p.labelKey)}
             </option>
@@ -369,58 +325,223 @@ export function SttPane() {
         </select>
       </FormField>
 
-      {isCloud ? (
-        <div className="border border-border rounded-[10px] px-3 py-3 space-y-2">
-          <div className="flex items-center gap-2 text-[13px]">
-            <Crown size={14} className="text-accent" />
-            <span className="text-text-primary font-medium">{t('settings.cloudSttPro')}</span>
-          </div>
-          {!user ? (
-            <p className="text-[12px] text-text-secondary">{t('settings.sttSignInHint')}</p>
-          ) : !hasCloudAccess ? (
-            <div className="space-y-2">
-              <p className="text-[12px] text-text-secondary">{t('settings.sttUpgradeHint')}</p>
-              <button
-                type="button"
-                onClick={goUpgrade}
-                className="rounded-[8px] border border-accent bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover"
+      <>
+        {isCustomWhisper && (
+          <>
+            <FormField label={t('settings.customSttPreset')}>
+              <select
+                value={config.stt_custom_preset}
+                onChange={(e) => {
+                  const preset = e.target.value as typeof config.stt_custom_preset
+                  const selected = CUSTOM_STT_PRESETS.find((p) => p.value === preset)
+                  const hasDefaults = selected && 'baseUrl' in selected && 'model' in selected
+                  updateConfig({
+                    stt_custom_preset: preset,
+                    ...(hasDefaults
+                      ? {
+                          stt_custom_base_url: selected.baseUrl,
+                          stt_custom_model: selected.model,
+                        }
+                      : {}),
+                  })
+                  setSttTestStatus('idle')
+                  setSttLatencyMs(null)
+                  setTestErrorMessage(null)
+                }}
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
               >
-                {t('nav.upgrade')}
-              </button>
-            </div>
-          ) : (
-            <p className="text-[12px] text-green-500">{t('settings.sttProActive')}</p>
-          )}
-        </div>
-      ) : isAppleSpeech ? (
-        <FormField label={t('providers.stt.appleSpeech')}>
-          <div className="flex gap-2">
-            <div className="flex-1 px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary">
-              <p
-                className={`flex items-center gap-1.5 ${
-                  appleSpeechReady
-                    ? 'text-success'
-                    : appleSpeechUnavailable
-                      ? 'text-text-tertiary'
-                      : 'text-text-secondary'
-                }`}
-              >
-                {appleSpeechReady ? (
-                  <CheckCircle2 size={13} className="flex-shrink-0" />
-                ) : appleSpeechUnavailable ? (
-                  <XCircle size={13} className="flex-shrink-0" />
-                ) : (
-                  <Loader2 size={13} className="flex-shrink-0 animate-spin" />
-                )}
-                <span>
-                  {appleSpeechReady
-                    ? t('settings.appleSpeechReady')
-                    : appleSpeechUnavailable
-                      ? t('settings.appleSpeechUnavailable')
-                      : t('settings.healthChecking')}
-                </span>
+                {CUSTOM_STT_PRESETS.map((preset) => (
+                  <option key={preset.value} value={preset.value}>
+                    {t(preset.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            <FormField label={t('settings.customSttBaseUrl')}>
+              <input
+                value={config.stt_custom_base_url}
+                onChange={(e) => {
+                  updateConfig({ stt_custom_base_url: e.target.value })
+                  setSttTestStatus('idle')
+                  setSttLatencyMs(null)
+                  setTestErrorMessage(null)
+                }}
+                placeholder={t('settings.customSttBaseUrlPlaceholder')}
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+            </FormField>
+
+            <FormField label={t('settings.customSttModel')}>
+              <input
+                value={config.stt_custom_model}
+                onChange={(e) => {
+                  updateConfig({ stt_custom_model: e.target.value })
+                  setSttTestStatus('idle')
+                  setSttLatencyMs(null)
+                  setTestErrorMessage(null)
+                }}
+                placeholder={t('settings.customSttModelPlaceholder')}
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+              <p className="text-[11px] text-text-tertiary mt-1.5">
+                {t('settings.customSttSetupHint')}
               </p>
-            </div>
+              {sttDiagnostics && (
+                <p
+                  className={`flex items-center gap-1.5 text-[11px] mt-1.5 min-w-0 ${
+                    sttDiagnostics.ready ? 'text-success' : 'text-text-tertiary'
+                  }`}
+                >
+                  {sttDiagnostics.ready ? (
+                    <CheckCircle2 size={12} className="flex-shrink-0" />
+                  ) : (
+                    <XCircle size={12} className="flex-shrink-0" />
+                  )}
+                  <span className="flex-shrink-0">
+                    {sttDiagnostics.ready
+                      ? t('settings.localSttReady')
+                      : t('settings.localSttNeedsSetup')}
+                  </span>
+                  {sttDiagnostics.endpoint && (
+                    <>
+                      <span className="text-text-tertiary">·</span>
+                      <span className="truncate text-text-tertiary">{sttDiagnostics.endpoint}</span>
+                    </>
+                  )}
+                </p>
+              )}
+            </FormField>
+
+            <FormField label={t('settings.customSttFallbackBaseUrl')}>
+              <input
+                value={config.stt_custom_fallback_base_url}
+                onChange={(e) => updateConfig({ stt_custom_fallback_base_url: e.target.value })}
+                placeholder="https://openrouter.ai/api/v1"
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+              <p className="text-[11px] text-text-tertiary mt-1.5">
+                {t('settings.customSttFallbackHint')}
+              </p>
+            </FormField>
+
+            <FormField label={t('settings.customSttFallbackModel')}>
+              <input
+                value={config.stt_custom_fallback_model}
+                onChange={(e) => updateConfig({ stt_custom_fallback_model: e.target.value })}
+                placeholder="openai/whisper-large-v3"
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+            </FormField>
+
+            <FormField label={t('settings.customSttFallbackApiKey')}>
+              <input
+                type="password"
+                value={fallbackApiKeyDraft}
+                onChange={(e) => {
+                  setFallbackApiKeyDraft(e.target.value)
+                  persistFallbackSttCredential(e.target.value)
+                }}
+                placeholder={t('settings.customSttFallbackApiKeyPlaceholder')}
+                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+              <p className="text-[11px] text-text-tertiary mt-1.5">
+                {t('settings.customSttFallbackApiKeyHint')}
+              </p>
+            </FormField>
+
+            <FormField label={t('settings.customSttRequestTimeout')}>
+              <div className="flex items-center rounded-[10px] border border-border bg-bg-secondary transition-colors focus-within:border-border-focus">
+                <input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={config.stt_request_timeout_secs}
+                  onChange={(event) => {
+                    const seconds = Number(event.target.value)
+                    if (Number.isFinite(seconds) && seconds >= 0) {
+                      updateConfig({ stt_request_timeout_secs: Math.floor(seconds) })
+                    }
+                  }}
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-[13px] text-text-primary outline-none"
+                />
+                <span className="pr-3 text-[12px] text-text-secondary" aria-hidden="true">
+                  {t('recordingLimits.secondsUnit')}
+                </span>
+              </div>
+              <p className="text-[11px] text-text-tertiary mt-1.5">
+                {t('settings.customSttRequestTimeoutHint')}
+              </p>
+            </FormField>
+          </>
+        )}
+
+        {isVolcengineDoubao && (
+          <FormField label={t('settings.volcengineResourceId')}>
+            <select
+              aria-label={t('settings.volcengineResourceId')}
+              value={volcengineResourceId}
+              onChange={(e) => {
+                updateConfig({ stt_volcengine_resource_id: e.target.value })
+                setSttTestStatus('idle')
+                setSttLatencyMs(null)
+                setTestErrorMessage(null)
+                setCredentialErrorMessage(null)
+              }}
+              className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+            >
+              {VOLCENGINE_STT_RESOURCES.map((resource) => (
+                <option key={resource.value} value={resource.value}>
+                  {t(resource.labelKey)}
+                </option>
+              ))}
+            </select>
+          </FormField>
+        )}
+
+        {isAliyunQwen3 && (
+          <FormField label={t('settings.aliyunQwenRegion')}>
+            <select
+              aria-label={t('settings.aliyunQwenRegion')}
+              value={config.stt_aliyun_qwen_region}
+              onChange={(e) => {
+                updateConfig({
+                  stt_aliyun_qwen_region: e.target.value as typeof config.stt_aliyun_qwen_region,
+                })
+                setSttTestStatus('idle')
+                setSttLatencyMs(null)
+                setTestErrorMessage(null)
+                setCredentialErrorMessage(null)
+              }}
+              className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+            >
+              <option value="china-mainland">{t('settings.aliyunQwenRegionChina')}</option>
+              <option value="international">{t('settings.aliyunQwenRegionInternational')}</option>
+            </select>
+            <p className="text-[11px] text-text-tertiary mt-1.5">
+              {t('settings.aliyunQwenRegionHint')}
+            </p>
+          </FormField>
+        )}
+
+        <FormField
+          label={isCustomWhisper ? t('settings.customSttApiKeyOptional') : t('settings.apiKey')}
+        >
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={apiKeyDraft}
+              onChange={(e) => {
+                setApiKeyDraft(e.target.value)
+                persistSttCredential(e.target.value)
+                setSttTestStatus('idle')
+                setSttLatencyMs(null)
+                setTestErrorMessage(null)
+              }}
+              onBlur={() => persistSttCredential(apiKeyDraft, 0)}
+              placeholder={t('settings.enterApiKey')}
+              className="flex-1 px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
+            />
             <button
               onClick={handleTest}
               disabled={!canTest || sttTestStatus === 'testing'}
@@ -442,263 +563,20 @@ export function SttPane() {
               <span>{testErrorMessage || t('settings.connectionFailed')}</span>
             </div>
           )}
-        </FormField>
-      ) : (
-        <>
-          {isCustomWhisper && (
-            <>
-              <FormField label={t('settings.customSttPreset')}>
-                <select
-                  value={config.stt_custom_preset}
-                  onChange={(e) => {
-                    const preset = e.target.value as typeof config.stt_custom_preset
-                    const selected = CUSTOM_STT_PRESETS.find((p) => p.value === preset)
-                    const hasDefaults = selected && 'baseUrl' in selected && 'model' in selected
-                    updateConfig({
-                      stt_custom_preset: preset,
-                      ...(hasDefaults
-                        ? {
-                            stt_custom_base_url: selected.baseUrl,
-                            stt_custom_model: selected.model,
-                          }
-                        : {}),
-                    })
-                    setSttTestStatus('idle')
-                    setSttLatencyMs(null)
-                    setTestErrorMessage(null)
-                  }}
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                >
-                  {CUSTOM_STT_PRESETS.map((preset) => (
-                    <option key={preset.value} value={preset.value}>
-                      {t(preset.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-
-              <FormField label={t('settings.customSttBaseUrl')}>
-                <input
-                  value={config.stt_custom_base_url}
-                  onChange={(e) => {
-                    updateConfig({ stt_custom_base_url: e.target.value })
-                    setSttTestStatus('idle')
-                    setSttLatencyMs(null)
-                    setTestErrorMessage(null)
-                  }}
-                  placeholder={t('settings.customSttBaseUrlPlaceholder')}
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                />
-              </FormField>
-
-              <FormField label={t('settings.customSttModel')}>
-                <input
-                  value={config.stt_custom_model}
-                  onChange={(e) => {
-                    updateConfig({ stt_custom_model: e.target.value })
-                    setSttTestStatus('idle')
-                    setSttLatencyMs(null)
-                    setTestErrorMessage(null)
-                  }}
-                  placeholder={t('settings.customSttModelPlaceholder')}
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                />
-                <p className="text-[11px] text-text-tertiary mt-1.5">
-                  {t('settings.customSttSetupHint')}
-                </p>
-                {sttDiagnostics && (
-                  <p
-                    className={`flex items-center gap-1.5 text-[11px] mt-1.5 min-w-0 ${
-                      sttDiagnostics.ready ? 'text-success' : 'text-text-tertiary'
-                    }`}
-                  >
-                    {sttDiagnostics.ready ? (
-                      <CheckCircle2 size={12} className="flex-shrink-0" />
-                    ) : (
-                      <XCircle size={12} className="flex-shrink-0" />
-                    )}
-                    <span className="flex-shrink-0">
-                      {sttDiagnostics.ready
-                        ? t('settings.localSttReady')
-                        : t('settings.localSttNeedsSetup')}
-                    </span>
-                    {sttDiagnostics.endpoint && (
-                      <>
-                        <span className="text-text-tertiary">·</span>
-                        <span className="truncate text-text-tertiary">
-                          {sttDiagnostics.endpoint}
-                        </span>
-                      </>
-                    )}
-                  </p>
-                )}
-              </FormField>
-
-              <FormField label={t('settings.customSttFallbackBaseUrl')}>
-                <input
-                  value={config.stt_custom_fallback_base_url}
-                  onChange={(e) => updateConfig({ stt_custom_fallback_base_url: e.target.value })}
-                  placeholder="https://openrouter.ai/api/v1"
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                />
-                <p className="text-[11px] text-text-tertiary mt-1.5">
-                  {t('settings.customSttFallbackHint')}
-                </p>
-              </FormField>
-
-              <FormField label={t('settings.customSttFallbackModel')}>
-                <input
-                  value={config.stt_custom_fallback_model}
-                  onChange={(e) => updateConfig({ stt_custom_fallback_model: e.target.value })}
-                  placeholder="openai/whisper-large-v3"
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                />
-              </FormField>
-
-              <FormField label={t('settings.customSttFallbackApiKey')}>
-                <input
-                  type="password"
-                  value={fallbackApiKeyDraft}
-                  onChange={(e) => {
-                    setFallbackApiKeyDraft(e.target.value)
-                    persistFallbackSttCredential(e.target.value)
-                  }}
-                  placeholder={t('settings.customSttFallbackApiKeyPlaceholder')}
-                  className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-                />
-                <p className="text-[11px] text-text-tertiary mt-1.5">
-                  {t('settings.customSttFallbackApiKeyHint')}
-                </p>
-              </FormField>
-
-              <FormField label={t('settings.customSttRequestTimeout')}>
-                <div className="flex items-center rounded-[10px] border border-border bg-bg-secondary transition-colors focus-within:border-border-focus">
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={config.stt_request_timeout_secs}
-                    onChange={(event) => {
-                      const seconds = Number(event.target.value)
-                      if (Number.isFinite(seconds) && seconds >= 0) {
-                        updateConfig({ stt_request_timeout_secs: Math.floor(seconds) })
-                      }
-                    }}
-                    className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-[13px] text-text-primary outline-none"
-                  />
-                  <span className="pr-3 text-[12px] text-text-secondary" aria-hidden="true">
-                    {t('recordingLimits.secondsUnit')}
-                  </span>
-                </div>
-                <p className="text-[11px] text-text-tertiary mt-1.5">
-                  {t('settings.customSttRequestTimeoutHint')}
-                </p>
-              </FormField>
-            </>
+          {credentialErrorMessage ? (
+            <p className="text-[11px] text-error mt-1.5">
+              {t('settings.credentialSaveFailed', { details: credentialErrorMessage })}
+            </p>
+          ) : (
+            <p className="text-[11px] text-text-tertiary mt-1.5">{t('settings.storedLocally')}</p>
           )}
-
           {isVolcengineDoubao && (
-            <FormField label={t('settings.volcengineResourceId')}>
-              <select
-                aria-label={t('settings.volcengineResourceId')}
-                value={volcengineResourceId}
-                onChange={(e) => {
-                  updateConfig({ stt_volcengine_resource_id: e.target.value })
-                  setSttTestStatus('idle')
-                  setSttLatencyMs(null)
-                  setTestErrorMessage(null)
-                  setCredentialErrorMessage(null)
-                }}
-                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-              >
-                {VOLCENGINE_STT_RESOURCES.map((resource) => (
-                  <option key={resource.value} value={resource.value}>
-                    {t(resource.labelKey)}
-                  </option>
-                ))}
-              </select>
-            </FormField>
+            <p className="text-[11px] text-text-tertiary mt-1.5">
+              {t('settings.volcengineSttKeyHint')}
+            </p>
           )}
-
-          {isAliyunQwen3 && (
-            <FormField label={t('settings.aliyunQwenRegion')}>
-              <select
-                aria-label={t('settings.aliyunQwenRegion')}
-                value={config.stt_aliyun_qwen_region}
-                onChange={(e) => {
-                  updateConfig({
-                    stt_aliyun_qwen_region: e.target.value as typeof config.stt_aliyun_qwen_region,
-                  })
-                  setSttTestStatus('idle')
-                  setSttLatencyMs(null)
-                  setTestErrorMessage(null)
-                  setCredentialErrorMessage(null)
-                }}
-                className="w-full px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-              >
-                <option value="china-mainland">{t('settings.aliyunQwenRegionChina')}</option>
-                <option value="international">{t('settings.aliyunQwenRegionInternational')}</option>
-              </select>
-              <p className="text-[11px] text-text-tertiary mt-1.5">
-                {t('settings.aliyunQwenRegionHint')}
-              </p>
-            </FormField>
-          )}
-
-          <FormField
-            label={isCustomWhisper ? t('settings.customSttApiKeyOptional') : t('settings.apiKey')}
-          >
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKeyDraft}
-                onChange={(e) => {
-                  setApiKeyDraft(e.target.value)
-                  persistSttCredential(e.target.value)
-                  setSttTestStatus('idle')
-                  setSttLatencyMs(null)
-                  setTestErrorMessage(null)
-                }}
-                onBlur={() => persistSttCredential(apiKeyDraft, 0)}
-                placeholder={t('settings.enterApiKey')}
-                className="flex-1 px-3 py-2.5 bg-bg-secondary border border-border rounded-[10px] text-[13px] text-text-primary outline-none focus:border-border-focus transition-colors"
-              />
-              <button
-                onClick={handleTest}
-                disabled={!canTest || sttTestStatus === 'testing'}
-                className="px-4 py-2.5 bg-accent text-white rounded-[10px] text-[13px] border-none cursor-pointer hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-              >
-                {sttTestStatus === 'testing' && <Loader2 size={14} className="animate-spin" />}
-                {t('settings.test')}
-              </button>
-            </div>
-            {sttTestStatus === 'success' && (
-              <p className="flex items-center gap-1 text-[12px] text-success mt-2">
-                <CheckCircle2 size={13} />{' '}
-                {sttLatencyMs !== null ? `${sttLatencyMs}ms` : t('settings.connectionSuccess')}
-              </p>
-            )}
-            {(sttTestStatus === 'error' || testErrorMessage) && (
-              <div className="flex items-start gap-1 text-[12px] text-error mt-2">
-                <XCircle size={13} className="mt-[1px] flex-shrink-0" />
-                <span>{testErrorMessage || t('settings.connectionFailed')}</span>
-              </div>
-            )}
-            {credentialErrorMessage ? (
-              <p className="text-[11px] text-error mt-1.5">
-                {t('settings.credentialSaveFailed', { details: credentialErrorMessage })}
-              </p>
-            ) : (
-              <p className="text-[11px] text-text-tertiary mt-1.5">{t('settings.storedLocally')}</p>
-            )}
-            {isVolcengineDoubao && (
-              <p className="text-[11px] text-text-tertiary mt-1.5">
-                {t('settings.volcengineSttKeyHint')}
-              </p>
-            )}
-          </FormField>
-        </>
-      )}
+        </FormField>
+      </>
 
       <FormField label={t('settings.sttLanguage')}>
         <select

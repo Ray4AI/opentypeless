@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MoreHorizontal, Plus, X } from 'lucide-react'
-import { bindingFromHotkey, hotkeyFromBinding, isMacPlatform } from '../../stores/appStore'
+import { bindingFromHotkey, hotkeyFromBinding } from '../../stores/appStore'
 import type { HotkeyRole } from '../../lib/tauri'
 import type { ShortcutBinding } from '../../stores/appStore'
 import { pauseHotkey, resumeHotkey } from '../../lib/tauri'
@@ -58,7 +58,6 @@ export function HotkeyRecorder({
   onCancel,
 }: HotkeyRecorderProps) {
   const { t } = useTranslation()
-  const isMac = isMacPlatform()
   const [recording, setRecording] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
   const [modifierHint, setModifierHint] = useState<string | null>(null)
@@ -134,11 +133,10 @@ export function HotkeyRecorder({
       event.stopPropagation()
 
       const parts: string[] = []
-      if (isMac && event.metaKey) parts.push('Command')
       if (event.ctrlKey) parts.push('Ctrl')
-      if (event.altKey) parts.push(isMac ? 'Option' : 'Alt')
+      if (event.altKey) parts.push('Alt')
       if (event.shiftKey) parts.push('Shift')
-      if (!isMac && event.metaKey) parts.push('Meta')
+      if (event.metaKey) parts.push('Meta')
 
       if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) {
         setModifierHint(parts.length > 0 ? `${parts.join('+')}+...` : null)
@@ -175,7 +173,7 @@ export function HotkeyRecorder({
       if (autoConfirmTimer.current) clearTimeout(autoConfirmTimer.current)
       autoConfirmTimer.current = setTimeout(() => confirmHotkey(combo), 1500)
     },
-    [confirmHotkey, isMac],
+    [confirmHotkey],
   )
 
   useEffect(() => {

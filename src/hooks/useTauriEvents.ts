@@ -3,7 +3,6 @@ import { listen } from '@tauri-apps/api/event'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { useAppStore } from '../stores/appStore'
-import { useAuthStore } from '../stores/authStore'
 import type {
   AppConfig,
   ContextProfileSummary,
@@ -15,11 +14,6 @@ import type {
 import { getHistory } from '../lib/tauri'
 import { toast } from '../components/toast-service'
 import { capsuleErrorKeyFromPayload, type PipelineErrorPayload } from '../lib/capsuleError'
-import { invalidateCloudSessionOnce } from '../lib/cloud-session'
-import {
-  managedCloudIncidentFromPipelineError,
-  useCloudServiceStore,
-} from '../stores/cloudServiceStore'
 
 type Unlisten = () => void | Promise<void>
 
@@ -70,7 +64,6 @@ export function useTauriEvents() {
 
   useEffect(() => {
     let cancelled = false
-    let managedRunActive = false
     const unlisteners: Unlisten[] = []
 
     function addListener<T>(event: string, handler: (payload: T) => void) {
@@ -93,19 +86,12 @@ export function useTauriEvents() {
     addListener<string>('llm:chunk', appendPolishedChunk)
     addListener<PipelineState>('pipeline:state', (state) => {
       setPipelineState(state)
-      if (state === 'preparing' || state === 'recording' || state === 'ask_recording') {
-        const config = useAppStore.getState().config
-        managedRunActive =
-          config.stt_provider === 'cloud' ||
-          (config.polish_enabled && config.llm_provider === 'cloud')
-      }
       if (state === 'preparing' || state === 'idle') {
         setRecordingDeadline(null)
       }
       if (state === 'preparing' || state === 'recording' || state === 'ask_recording') {
         // Clear any previous error when starting a new pipeline run
         setPipelineError(null)
-        useCloudServiceStore.getState().clearIncident()
       }
       if (state === 'idle') {
         // Don't clear pipelineError here — CapsuleError auto-resets after 2.5s.
@@ -116,12 +102,6 @@ export function useTauriEvents() {
           .catch((err) => {
             console.error('Failed to refresh history:', err)
           })
-        if (managedRunActive && useAuthStore.getState().user) {
-          // The managed request has already completed, so this read cannot add
-          // stop-to-output latency and Neon is already awake from real usage.
-          void useAuthStore.getState().refreshSubscription()
-        }
-        managedRunActive = false
       }
     })
     addListener<RecordingDeadlineSnapshot>('recording:deadline', setRecordingDeadline)
@@ -152,8 +132,6 @@ export function useTauriEvents() {
       if (capsuleErrorKey === 'accessibility_required') {
         setAccessibilityTrusted(false)
       }
-      const incident = managedCloudIncidentFromPipelineError(payload, useAppStore.getState().config)
-      if (incident) useCloudServiceStore.getState().setIncident(incident)
     })
     addListener<{ code: string; details?: string }>('pipeline:warning', (payload) => {
       const message = t(`errors.${payload.code}`, { details: payload.details ?? '' })
@@ -164,11 +142,6 @@ export function useTauriEvents() {
     })
     addListener<void>('hotkey:registration-recovered', () => {
       setHotkeyRegistrationError(null)
-    })
-    addListener<void>('auth:session-invalid', () => {
-      void invalidateCloudSessionOnce().catch((error) => {
-        console.error('Failed to invalidate cloud session:', error)
-      })
     })
     addListener<Partial<AppConfig>>('config:patch', (patch) => {
       applyPersistedConfigPatch(patch)

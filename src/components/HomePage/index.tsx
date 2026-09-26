@@ -1,48 +1,19 @@
-import { Mic, Settings, History, Crown } from 'lucide-react'
+import { Mic, Settings, History } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { spring } from '../../lib/animations'
 import { useAppStore } from '../../stores/appStore'
-import { hasManagedCloudAccess, useAuthStore } from '../../stores/authStore'
 import { useRoute } from '../../lib/router'
 
 export function HomePage() {
   const config = useAppStore((s) => s.config)
   const history = useAppStore((s) => s.history)
   const { navigate } = useRoute()
-  const {
-    user,
-    displayName,
-    quotaModel,
-    displayWordsUsedEstimate,
-    displayWordsLimit,
-    displayWordsResetAt,
-    cloudWordsUsed,
-    cloudWordsLimit,
-    cloudWordsResetAt,
-    sttSecondsUsed,
-    sttSecondsLimit,
-    llmTokensUsed,
-    llmTokensLimit,
-  } = useAuthStore()
   const { t } = useTranslation()
-  const hasCloudAccess = useAuthStore(hasManagedCloudAccess)
 
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const todayCount = history.filter((h) => h.created_at.startsWith(today)).length
-  const wordsUsed =
-    quotaModel === 'legacy_dual_meter' && displayWordsLimit > 0
-      ? displayWordsUsedEstimate
-      : cloudWordsUsed
-  const wordsLimit =
-    quotaModel === 'legacy_dual_meter' && displayWordsLimit > 0
-      ? displayWordsLimit
-      : cloudWordsLimit
-  const wordsResetAt =
-    quotaModel === 'legacy_dual_meter' && displayWordsLimit > 0
-      ? displayWordsResetAt
-      : cloudWordsResetAt
 
   return (
     <div className="p-6 space-y-6">
@@ -79,81 +50,6 @@ export function HomePage() {
           <p className="text-[22px] font-semibold">{todayCount}</p>
         </div>
       </div>
-
-      {/* Plan / Quota summary */}
-      {user && (
-        <div className="rounded-[18px] p-5 jelly-card">
-          {hasCloudAccess ? (
-            <>
-              <div className="flex items-center gap-2 mb-3">
-                <Crown size={16} className="text-amber-500" />
-                <h3 className="text-[13px] font-medium">{displayName}</h3>
-              </div>
-              <div className="space-y-3">
-                {wordsLimit > 0 ? (
-                  <>
-                    <RemainingWords used={wordsUsed} limit={wordsLimit} resetAt={wordsResetAt} />
-                    <QuotaBar
-                      label={t('account.cloudWords', 'Cloud words')}
-                      used={wordsUsed}
-                      limit={wordsLimit}
-                      unit={t('account.quotaKWords', 'k words')}
-                      divisor={1000}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <QuotaBar
-                      label={t('upgrade.stt')}
-                      used={sttSecondsUsed}
-                      limit={sttSecondsLimit}
-                      unit={t('account.quotaHours')}
-                      divisor={3600}
-                    />
-                    <QuotaBar
-                      label={t('upgrade.llm')}
-                      used={llmTokensUsed}
-                      limit={llmTokensLimit}
-                      unit={t('account.quotaTokens')}
-                      divisor={1000}
-                    />
-                  </>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between">
-                <h3 className="text-[13px] font-medium">{t('home.freePlan')}</h3>
-                <button
-                  onClick={() => navigate('upgrade')}
-                  className="text-[12px] text-accent font-medium bg-transparent border-none cursor-pointer hover:underline"
-                >
-                  {t('home.upgradeToPro')}
-                </button>
-              </div>
-              {sttSecondsLimit > 0 && (
-                <div className="space-y-3 mt-3">
-                  <QuotaBar
-                    label={t('upgrade.stt')}
-                    used={sttSecondsUsed}
-                    limit={sttSecondsLimit}
-                    unit={t('account.quotaMin')}
-                    divisor={60}
-                  />
-                  <QuotaBar
-                    label={t('upgrade.llm')}
-                    used={llmTokensUsed}
-                    limit={llmTokensLimit}
-                    unit={t('account.quotaTokens')}
-                    divisor={1000}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
 
       {/* Current config */}
       <div className="rounded-[18px] p-5 jelly-card">
@@ -202,71 +98,6 @@ export function HomePage() {
           <History size={16} className="text-text-secondary" />
           <span className="text-[13px] font-medium">{t('nav.history')}</span>
         </motion.button>
-      </div>
-    </div>
-  )
-}
-
-function RemainingWords({
-  used,
-  limit,
-  resetAt,
-}: {
-  used: number
-  limit: number
-  resetAt: string | null
-}) {
-  const { t } = useTranslation()
-  const remaining = Math.max(limit - used, 0)
-  const formattedRemaining = new Intl.NumberFormat().format(remaining)
-
-  return (
-    <div className="rounded-[10px] bg-bg-secondary/60 px-3 py-2.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[12px] text-text-secondary">{t('home.wordsRemaining')}</span>
-        <span className="text-[18px] font-semibold text-text-primary tabular-nums">
-          {formattedRemaining}
-        </span>
-      </div>
-      {resetAt && (
-        <p className="mt-1 text-[11px] text-text-tertiary">
-          {t('home.wordsReset', { date: new Date(resetAt).toLocaleDateString() })}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function QuotaBar({
-  label,
-  used,
-  limit,
-  unit,
-  divisor,
-}: {
-  label: string
-  used: number
-  limit: number
-  unit: string
-  divisor: number
-}) {
-  const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0
-  const usedDisplay = (used / divisor).toFixed(1)
-  const limitDisplay = (limit / divisor).toFixed(1)
-
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-[12px]">
-        <span className="text-text-secondary">{label}</span>
-        <span className="text-text-tertiary">
-          {usedDisplay} / {limitDisplay} {unit}
-        </span>
-      </div>
-      <div className="h-1.5 bg-bg-secondary rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${pct > 90 ? 'bg-red-500' : 'bg-accent'}`}
-          style={{ width: `${pct}%` }}
-        />
       </div>
     </div>
   )

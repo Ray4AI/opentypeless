@@ -5,7 +5,6 @@ use crate::storage;
 use crate::AskHotkeyCache;
 use crate::HotkeyModeCache;
 use crate::HotkeyRoleCache;
-use crate::SessionTokenStore;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::Emitter;
@@ -547,31 +546,13 @@ pub fn role_for_global_shortcut(
 
 pub fn default_shortcut() -> Shortcut {
     let default_hotkey = storage::AppConfig::default().hotkey;
-    let fallback = {
-        #[cfg(target_os = "macos")]
-        {
-            Shortcut::new(Some(Modifiers::ALT), Code::Slash)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            Shortcut::new(Some(Modifiers::CONTROL), Code::Slash)
-        }
-    };
+    let fallback = Shortcut::new(Some(Modifiers::CONTROL), Code::Slash);
     parse_hotkey(&default_hotkey).unwrap_or(fallback)
 }
 
 pub fn default_ask_shortcut() -> Shortcut {
     let default_hotkey = storage::AppConfig::default().ask_hotkey;
-    let fallback = {
-        #[cfg(target_os = "macos")]
-        {
-            Shortcut::new(Some(Modifiers::SUPER), Code::Period)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            Shortcut::new(Some(Modifiers::CONTROL), Code::Period)
-        }
-    };
+    let fallback = Shortcut::new(Some(Modifiers::CONTROL), Code::Period);
     parse_hotkey(&default_hotkey).unwrap_or(fallback)
 }
 
@@ -780,18 +761,9 @@ async fn stop_ask_shortcut(handle: tauri::AppHandle) {
 
     let ask_state = handle.state::<commands::ask::AskDictationState>();
     let config_state = handle.state::<storage::ConfigManager>();
-    let token_store = handle.state::<SessionTokenStore>();
     let client = handle.state::<reqwest::Client>();
 
-    match commands::ask::stop_ask_dictation(
-        handle.clone(),
-        ask_state,
-        config_state,
-        token_store,
-        client,
-    )
-    .await
-    {
+    match commands::ask::stop_ask_dictation(handle.clone(), ask_state, config_state, client).await {
         Ok(result) if result.should_show_window() => show_ask_result_window(&handle, &result),
         Ok(_) => {}
         Err(message) if message == "Ask dictation is not recording" => {}
@@ -811,14 +783,12 @@ fn start_ask_shortcut(handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let ask_state = handle.state::<commands::ask::AskDictationState>();
         let config_state = handle.state::<storage::ConfigManager>();
-        let token_store = handle.state::<SessionTokenStore>();
         let client = handle.state::<reqwest::Client>();
 
         if let Err(message) = commands::ask::start_reserved_ask_dictation(
             handle.clone(),
             ask_state,
             config_state,
-            token_store,
             client,
             true,
         )
@@ -1312,26 +1282,6 @@ mod tests {
         let config = storage::AppConfig::new_install_default();
         let plan = crate::hotkey::hotkey_registration_plan_from_config(&config.hotkeys).unwrap();
 
-        #[cfg(target_os = "macos")]
-        {
-            assert!(plan.native.iter().any(|entry| {
-                entry.role == HotkeyRole::Dictation
-                    && entry.trigger == crate::native_hotkey::NativeHotkeyTrigger::Fn
-            }));
-            assert!(plan.native.iter().any(|entry| {
-                entry.role == HotkeyRole::Ask
-                    && entry.trigger == crate::native_hotkey::NativeHotkeyTrigger::FnSpace
-            }));
-            assert!(plan.native.iter().any(|entry| {
-                entry.role == HotkeyRole::TranslateSelection
-                    && entry.trigger == crate::native_hotkey::NativeHotkeyTrigger::FnLeftShift
-            }));
-            assert!(!plan
-                .global
-                .iter()
-                .any(|entry| entry.role == HotkeyRole::Dictation));
-        }
-
         #[cfg(target_os = "windows")]
         {
             assert!(plan
@@ -1349,7 +1299,7 @@ mod tests {
             assert!(plan.native.is_empty());
         }
 
-        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        #[cfg(not(target_os = "windows"))]
         {
             assert!(plan
                 .global

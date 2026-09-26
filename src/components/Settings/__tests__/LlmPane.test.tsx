@@ -56,12 +56,6 @@ vi.mock('react-i18next', () => ({
         'settings.selectedTextContextDesc': 'Use selected text for context',
         'settings.targetLanguage': 'Translate to',
         'settings.manageTranslationTargets': 'Manage languages',
-        'settings.cloudLlmPro': 'Cloud LLM (Pro)',
-        'settings.llmSignInHint':
-          'Sign in and subscribe to Pro to use cloud AI polish. No API key needed.',
-        'settings.llmUpgradeHint':
-          'Upgrade to Pro for cloud AI polish and monthly usage. No API key needed.',
-        'settings.llmProActive': 'Pro active — cloud AI polish is ready. No API key needed.',
         'settings.askAnything': 'Ask Anything',
         'settings.askAnythingDesc': 'Voice question, one-shot answer. No chat history.',
         'ask.ready': 'Ready to ask',
@@ -115,37 +109,12 @@ const mockAppStore = {
   lastContext: null as any,
 }
 
-const mockAuthStore = {
-  user: null as any,
-  plan: null as any,
-  source: 'free',
-  cloudWordsLimit: 0,
-  licenseStatus: null as any,
-}
-
 vi.mock('../../../stores/appStore', () => ({
   useAppStore: (selector: any) => {
     if (typeof selector === 'function') {
       return selector(mockAppStore)
     }
     return mockAppStore
-  },
-}))
-
-vi.mock('../../../stores/authStore', () => ({
-  hasManagedCloudAccess: (state: typeof mockAuthStore) =>
-    state.licenseStatus !== 'refunded' &&
-    state.licenseStatus !== 'deactivated' &&
-    ((state.source === 'creem' && state.cloudWordsLimit > 0) ||
-      (state.source === 'appsumo' &&
-        state.cloudWordsLimit > 0 &&
-        state.licenseStatus === 'active') ||
-      state.plan === 'pro'),
-  useAuthStore: (selector: any) => {
-    if (typeof selector === 'function') {
-      return selector(mockAuthStore)
-    }
-    return mockAuthStore
   },
 }))
 
@@ -174,16 +143,10 @@ describe('LlmPane', () => {
     mockAppStore.llmLatencyMs = null
     mockAppStore.llmModels = []
     mockAppStore.lastContext = null
-    mockAuthStore.user = null
-    mockAuthStore.plan = null
-    mockAuthStore.source = 'free'
-    mockAuthStore.cloudWordsLimit = 0
-    mockAuthStore.licenseStatus = null
 
     vi.clearAllMocks()
     vi.mocked(tauri.readCredential).mockResolvedValue(null)
     vi.mocked(tauri.setCredential).mockResolvedValue(undefined)
-    vi.mocked(tauri.getLlmModelCapability).mockResolvedValue('unknown')
     vi.mocked(tauri.getLatestMappingCandidate).mockResolvedValue(null)
     vi.mocked(tauri.listCustomAppMappings).mockResolvedValue([])
   })
@@ -232,48 +195,12 @@ describe('LlmPane', () => {
     })
   })
 
-  describe('Cloud provider UI', () => {
+  describe('AI Polish settings scope', () => {
     it('keeps Ask Anything out of AI Polish settings', () => {
       render(<LlmPane />)
 
       expect(screen.queryByText('Ask Anything')).not.toBeInTheDocument()
       expect(screen.queryByText('Voice question')).not.toBeInTheDocument()
-    })
-
-    it('shows cloud info when provider is cloud and user not signed in', () => {
-      mockAppStore.config.llm_provider = 'cloud'
-      render(<LlmPane />)
-      expect(screen.getByText('Cloud LLM (Pro)')).toBeInTheDocument()
-      expect(
-        screen.getByText('Sign in and subscribe to Pro to use cloud AI polish. No API key needed.'),
-      ).toBeInTheDocument()
-    })
-
-    it('shows upgrade hint when user is signed in but not pro', () => {
-      mockAppStore.config.llm_provider = 'cloud'
-      mockAuthStore.user = { id: '1', email: 'test@example.com' }
-      mockAuthStore.plan = 'free'
-
-      render(<LlmPane />)
-      expect(screen.getByText('Cloud LLM (Pro)')).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'Upgrade to Pro for cloud AI polish and monthly usage. No API key needed.',
-        ),
-      ).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
-      expect(window.location.hash).toBe('#/upgrade')
-    })
-
-    it('shows active status when user is pro', () => {
-      mockAppStore.config.llm_provider = 'cloud'
-      mockAuthStore.user = { id: '1', email: 'test@example.com' }
-      mockAuthStore.plan = 'pro'
-
-      render(<LlmPane />)
-      expect(
-        screen.getByText('Pro active — cloud AI polish is ready. No API key needed.'),
-      ).toBeInTheDocument()
     })
   })
 
@@ -526,20 +453,6 @@ describe('LlmPane', () => {
   })
 
   describe('Model input', () => {
-    it('does not expose model capability implementation notes in the default flow', async () => {
-      vi.mocked(tauri.getLlmModelCapability).mockResolvedValueOnce('certified')
-      render(<LlmPane />)
-
-      expect(
-        screen.queryByText('Optimized context and thought-aware support'),
-      ).not.toBeInTheDocument()
-      expect(
-        screen.queryByText('Context and thought-aware support is best effort'),
-      ).not.toBeInTheDocument()
-      expect(tauri.getLlmModelCapability).not.toHaveBeenCalled()
-      expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    })
-
     it('keeps model editing available without a best-effort banner', () => {
       render(<LlmPane />)
 

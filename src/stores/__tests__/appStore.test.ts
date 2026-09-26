@@ -202,23 +202,36 @@ describe('appStore', () => {
     })
 
     it('keeps ordered translation targets and the legacy target mirror in sync', () => {
-      getState().updateConfig({ target_lang: 'ja' })
+      getState().updateConfig({ target_lang: 'zh' })
       expect(getState().config.translation).toEqual({
-        targets: ['en', 'ja'],
-        active_target: 'ja',
+        targets: ['en', 'zh'],
+        active_target: 'zh',
       })
 
       getState().updateConfig({
         translation: {
-          targets: ['fr', 'fr', 'xx', 'ja', 'de', 'es', 'pt', 'it'],
+          targets: ['en', 'en', 'xx', 'zh'],
+          active_target: 'zh',
+        },
+      })
+      expect(getState().config.translation).toEqual({
+        targets: ['en', 'zh'],
+        active_target: 'zh',
+      })
+      expect(getState().config.target_lang).toBe('zh')
+    })
+
+    it('ignores unsupported translation targets and falls back to a supported one', () => {
+      getState().updateConfig({
+        translation: {
+          targets: ['ja', 'fr'],
           active_target: 'ja',
         },
       })
       expect(getState().config.translation).toEqual({
-        targets: ['fr', 'ja', 'de', 'es', 'pt'],
-        active_target: 'ja',
+        targets: ['en'],
+        active_target: 'en',
       })
-      expect(getState().config.target_lang).toBe('ja')
     })
   })
 

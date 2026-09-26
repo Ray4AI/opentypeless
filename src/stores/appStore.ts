@@ -22,9 +22,7 @@ export type SttProvider =
   | 'openai-whisper'
   | 'groq-whisper'
   | 'siliconflow'
-  | 'apple-speech'
   | 'custom-whisper'
-  | 'cloud'
 
 export type AliyunQwenRegion = 'china-mainland' | 'international'
 export type LlmProvider =
@@ -40,7 +38,6 @@ export type LlmProvider =
   | 'claude'
   | 'ollama'
   | 'openrouter'
-  | 'cloud'
 export type OutputMode = 'keyboard' | 'clipboard'
 export type PasteShortcut = 'ctrlV' | 'ctrlShiftV' | 'shiftInsert'
 export type WindowsSendInputNewlineMode = 'enter' | 'shiftEnter' | 'crlf'
@@ -55,7 +52,7 @@ export type HotkeyMode = 'hold' | 'toggle'
 export type Theme = 'light' | 'dark' | 'system'
 export type PolishChineseScript = 'preserve' | 'simplified' | 'traditional'
 export type PolishStyle = 'minimal' | 'clean' | 'structured' | 'professional'
-export type SceneSource = 'custom' | 'builtin' | 'cloud'
+export type SceneSource = 'custom' | 'builtin'
 export type ContextFamily =
   | 'email'
   | 'work_chat'
@@ -89,7 +86,7 @@ export interface HotkeyConfig {
 }
 
 export interface PlatformCapabilities {
-  os: 'macos' | 'windows' | 'linux' | 'unknown'
+  os: 'windows' | 'linux' | 'unknown'
   sessionType: 'wayland' | 'x11' | 'unknown'
   globalHotkeyReliable: boolean
   keyboardOutputReliable: boolean
@@ -104,7 +101,7 @@ export interface HistoryEntry {
   context_icon_key: string
   context_family: ContextFamily
   browser_access_status: BrowserAccessStatus
-  provider_kind: 'managed_cloud' | 'byok' | 'local'
+  provider_kind: 'byok' | 'local'
   raw_text: string
   polished_text: string
   language: string | null
@@ -238,12 +235,15 @@ export interface AppConfig {
   recording_limit_mode: 'auto' | 'custom'
   custom_recording_limit_seconds: number
   max_recording_seconds: number
-  managed_stt_capability_state?: unknown
   history_enabled: boolean
   history_retention_days: number
   history_max_entries: number
   ui_language: string
   capsule_auto_hide: boolean
+  // WebDAV settings sync (password lives in the system credential vault)
+  webdav_url: string
+  webdav_username: string
+  webdav_auto_sync: boolean
   // Advanced (power-user) overrides — see src-tauri/src/llm/advanced.rs
   ask_max_tokens: number
   ask_temperature: number
@@ -316,8 +316,6 @@ interface AppState {
   setOnboardingCompleted: (done: boolean) => void
   onboardingStep: number
   setOnboardingStep: (step: number) => void
-  onboardingMode: 'cloud' | 'byok' | null
-  setOnboardingMode: (mode: 'cloud' | 'byok' | null) => void
 
   // Capsule
   capsuleExpanded: boolean
@@ -343,7 +341,7 @@ interface AppState {
   pipelineError: string | null
   setPipelineError: (error: string | null) => void
 
-  // macOS Accessibility permission
+  // Accessibility permission tracking (legacy; always trusted on Win/Linux)
   accessibilityTrusted: boolean
   setAccessibilityTrusted: (trusted: boolean) => void
   platformCapabilities: PlatformCapabilities | null
@@ -368,32 +366,26 @@ interface AppState {
   resetConfig: () => void
 }
 
-export const isMacPlatform = () =>
-  typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
-
 export const isWindowsPlatform = () =>
   typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('WIN') >= 0
 
 function defaultDictationHotkey(): string {
-  if (isMacPlatform()) return 'Fn'
   return 'Ctrl+/'
 }
 
 function defaultDictationHotkeyMode(): HotkeyMode {
-  return isMacPlatform() ? 'toggle' : 'hold'
+  return 'hold'
 }
 
 function defaultAskHotkey(): string {
-  if (isMacPlatform()) return 'Fn+Space'
   return 'Ctrl+.'
 }
 
 function defaultTranslateHotkey(): string | null {
-  if (isMacPlatform()) return 'Fn+LeftShift'
   return 'Ctrl+Shift+/'
 }
 
-const modifierOrder = ['Fn', 'RightAlt', 'Command', 'Super', 'Ctrl', 'Option', 'Alt', 'Shift']
+const modifierOrder = ['RightAlt', 'Super', 'Ctrl', 'Alt', 'Shift']
 
 function normalizeModifier(value: string): string | null {
   switch (value.trim().toLowerCase()) {
@@ -808,6 +800,9 @@ const defaultConfig: AppConfig = {
   history_max_entries: 5000,
   ui_language: 'en',
   capsule_auto_hide: true,
+  webdav_url: '',
+  webdav_username: '',
+  webdav_auto_sync: false,
   ask_max_tokens: 4096,
   ask_temperature: 0.2,
   ask_system_prompt: '',
@@ -867,8 +862,6 @@ export const useAppStore = create<AppState>((set) => ({
   setOnboardingCompleted: (onboardingCompleted) => set({ onboardingCompleted }),
   onboardingStep: 0,
   setOnboardingStep: (onboardingStep) => set({ onboardingStep }),
-  onboardingMode: null,
-  setOnboardingMode: (onboardingMode) => set({ onboardingMode }),
 
   capsuleExpanded: false,
   setCapsuleExpanded: (capsuleExpanded) => set({ capsuleExpanded }),

@@ -11,10 +11,6 @@ pub struct PlatformCapabilities {
 }
 
 pub fn current_os() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "macos"
-    }
     #[cfg(target_os = "windows")]
     {
         "windows"
@@ -23,7 +19,7 @@ pub fn current_os() -> &'static str {
     {
         "linux"
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         "unknown"
     }

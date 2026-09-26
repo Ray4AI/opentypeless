@@ -272,7 +272,7 @@ fn hotkey_status_for(
 
 fn hotkey_capability_for(caps: &platform::PlatformCapabilities) -> HotkeyCapability {
     let is_linux_wayland = caps.os == "linux" && caps.session_type == "wayland";
-    let supports_native_single_key = matches!(caps.os.as_str(), "macos" | "windows");
+    let supports_native_single_key = caps.os == "windows";
     HotkeyCapability {
         platform: caps.os.clone(),
         session_type: caps.session_type.clone(),
@@ -280,7 +280,8 @@ fn hotkey_capability_for(caps: &platform::PlatformCapabilities) -> HotkeyCapabil
         supports_hold_mode: !is_linux_wayland,
         supports_released_edge: !is_linux_wayland || supports_native_single_key,
         supports_side_specific_modifiers: supports_native_single_key,
-        requires_accessibility_permission: caps.os == "macos",
+        // macOS-only concern; this build does not target macOS.
+        requires_accessibility_permission: false,
         status_hint: is_linux_wayland.then(|| "linuxWaylandLimited".to_string()),
     }
 }
@@ -618,25 +619,12 @@ fn accessibility_diagnostic_row(
 }
 
 fn config_requires_accessibility_permission(
-    config: &storage::AppConfig,
-    caps: &platform::PlatformCapabilities,
+    _config: &storage::AppConfig,
+    _caps: &platform::PlatformCapabilities,
 ) -> bool {
-    if caps.os != "macos" {
-        return false;
-    }
-
-    config.output_mode == "keyboard" || config_uses_macos_native_hotkey(config)
-}
-
-fn config_uses_macos_native_hotkey(config: &storage::AppConfig) -> bool {
-    let hotkeys = effective_hotkey_config(config);
-    crate::hotkey::hotkey_registration_plan_from_config_for_platform(&hotkeys, "macos")
-        .map(|plan| {
-            plan.native.iter().any(|registered| {
-                registered.trigger == crate::native_hotkey::NativeHotkeyTrigger::Fn
-            })
-        })
-        .unwrap_or(false)
+    // Accessibility permission is a macOS-only requirement; this build does not
+    // target macOS.
+    false
 }
 
 fn hotkey_diagnostic_row(
@@ -1177,14 +1165,7 @@ mod tests {
     }
 
     #[test]
-    fn hotkey_status_capability_reports_native_support_on_macos_and_windows() {
-        let macos = platform::PlatformCapabilities {
-            os: "macos".to_string(),
-            session_type: "unknown".to_string(),
-            global_hotkey_reliable: true,
-            keyboard_output_reliable: true,
-            clipboard_auto_paste_reliable: true,
-        };
+    fn hotkey_status_capability_reports_native_support_on_windows() {
         let windows = platform::PlatformCapabilities {
             os: "windows".to_string(),
             session_type: "unknown".to_string(),
@@ -1193,11 +1174,8 @@ mod tests {
             clipboard_auto_paste_reliable: true,
         };
 
-        let macos_capability = hotkey_capability_for(&macos);
         let windows_capability = hotkey_capability_for(&windows);
 
-        assert!(macos_capability.supports_side_specific_modifiers);
-        assert!(macos_capability.requires_accessibility_permission);
         assert!(windows_capability.supports_side_specific_modifiers);
         assert!(!windows_capability.requires_accessibility_permission);
     }
@@ -1362,7 +1340,7 @@ mod tests {
         supervisor.record_registration_failure(generation, "already registered".to_string());
         supervisor.begin_registration_attempt();
         let caps = platform::PlatformCapabilities {
-            os: "macos".to_string(),
+            os: "windows".to_string(),
             session_type: "unknown".to_string(),
             keyboard_output_reliable: true,
             clipboard_auto_paste_reliable: true,
@@ -1396,7 +1374,7 @@ mod tests {
         };
         let supervisor = HotkeySupervisor::default();
         let caps = platform::PlatformCapabilities {
-            os: "macos".to_string(),
+            os: "windows".to_string(),
             session_type: "unknown".to_string(),
             keyboard_output_reliable: true,
             clipboard_auto_paste_reliable: true,
@@ -1564,82 +1542,6 @@ mod tests {
         assert_eq!(report.rows[1].status, DiagnosticStatus::NotApplicable);
         assert_eq!(report.rows[2].status, DiagnosticStatus::Error);
         assert_eq!(report.rows[4].status, DiagnosticStatus::Warning);
-    }
-
-    #[test]
-    fn diagnostics_marks_macos_accessibility_as_error_when_missing() {
-        let config = storage::AppConfig::default();
-        let caps = platform::PlatformCapabilities {
-            os: "macos".to_string(),
-            session_type: "unknown".to_string(),
-            global_hotkey_reliable: true,
-            keyboard_output_reliable: true,
-            clipboard_auto_paste_reliable: true,
-        };
-        let hotkey_status = hotkey_status_for(&config, None);
-
-        let report = build_system_diagnostics_report(
-            &config,
-            caps,
-            hotkey_status,
-            false,
-            ProbeResult::ok("Built-in microphone"),
-            ProbeResult::ok("Clipboard write restored"),
-            "2026-07-06T00:00:00",
-        );
-
-        let accessibility = report
-            .rows
-            .iter()
-            .find(|row| row.id == "accessibility")
-            .unwrap();
-        assert_eq!(accessibility.status, DiagnosticStatus::Error);
-        assert_eq!(
-            accessibility.action.as_deref(),
-            Some("openAccessibilitySettings")
-        );
-    }
-
-    #[test]
-    fn diagnostics_marks_macos_fn_hotkey_accessibility_as_error_even_for_clipboard_output() {
-        let mut config = storage::AppConfig {
-            output_mode: "clipboard".to_string(),
-            insertion_strategy: "clipboardPaste".to_string(),
-            hotkey: "Fn".to_string(),
-            hotkey_mode: "toggle".to_string(),
-            ask_hotkey: "Command+.".to_string(),
-            ..storage::AppConfig::default()
-        };
-        config.hotkeys = storage::HotkeyConfig::from_legacy("Fn", "Command+.", "toggle");
-        let caps = platform::PlatformCapabilities {
-            os: "macos".to_string(),
-            session_type: "unknown".to_string(),
-            global_hotkey_reliable: true,
-            keyboard_output_reliable: true,
-            clipboard_auto_paste_reliable: true,
-        };
-        let hotkey_status = hotkey_status_for_with_capability(&config, None, caps.clone());
-
-        let report = build_system_diagnostics_report(
-            &config,
-            caps,
-            hotkey_status,
-            false,
-            ProbeResult::ok("Built-in microphone"),
-            ProbeResult::ok("Clipboard write restored"),
-            "2026-07-06T00:00:00",
-        );
-
-        let accessibility = report
-            .rows
-            .iter()
-            .find(|row| row.id == "accessibility")
-            .unwrap();
-        assert_eq!(accessibility.status, DiagnosticStatus::Error);
-        assert_eq!(
-            accessibility.action.as_deref(),
-            Some("openAccessibilitySettings")
-        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::ShortcutState;
@@ -25,7 +25,7 @@ impl NativeHotkeyTrigger {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "windows", test))]
     fn base(self) -> NativeHotkeyTrigger {
         match self {
             Self::Fn | Self::FnSpace | Self::FnLeftShift => Self::Fn,
@@ -33,7 +33,7 @@ impl NativeHotkeyTrigger {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "windows", test))]
     fn combo_key(self) -> Option<NativeComboKey> {
         match self {
             Self::FnSpace | Self::RightAltSpace => Some(NativeComboKey::Space),
@@ -42,7 +42,7 @@ impl NativeHotkeyTrigger {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "windows", test))]
     fn from_base_combo(base: NativeHotkeyTrigger, combo: NativeComboKey) -> Option<Self> {
         match (base, combo) {
             (Self::Fn, NativeComboKey::Space) => Some(Self::FnSpace),
@@ -54,7 +54,7 @@ impl NativeHotkeyTrigger {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum NativeComboKey {
     Space,
@@ -75,13 +75,13 @@ pub struct NativeHotkeyEvent {
     pub state: ShortcutState,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 #[derive(Default)]
 struct NativeHeldState {
     held: AtomicBool,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 impl NativeHeldState {
     fn edge(&self, pressed: bool) -> Option<ShortcutState> {
         match (pressed, self.held.swap(pressed, Ordering::SeqCst)) {
@@ -127,13 +127,13 @@ impl NativeHotkeyRuntime {
 
 type NativeHotkeyHandler = Arc<dyn Fn(NativeHotkeyEvent) + Send + Sync + 'static>;
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 struct NativeMonitoredBinding {
     binding: NativeHotkeyBinding,
     held: NativeHeldState,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 impl NativeMonitoredBinding {
     fn new(binding: NativeHotkeyBinding) -> Self {
         Self {
@@ -143,7 +143,9 @@ impl NativeMonitoredBinding {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+// Consumed by the Windows native monitor; also compiled for tests on other hosts.
+#[allow(dead_code)]
+#[cfg(any(target_os = "windows", test))]
 fn monitored_bindings_for_base(
     bindings: Vec<NativeHotkeyBinding>,
     base: NativeHotkeyTrigger,
@@ -155,14 +157,14 @@ fn monitored_bindings_for_base(
         .collect()
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 fn has_combo_bindings(bindings: &[NativeMonitoredBinding], base: NativeHotkeyTrigger) -> bool {
     bindings.iter().any(|binding| {
         binding.binding.trigger.base() == base && binding.binding.trigger.combo_key().is_some()
     })
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 fn has_binding_for_trigger(
     bindings: &[NativeMonitoredBinding],
     trigger: NativeHotkeyTrigger,
@@ -172,7 +174,7 @@ fn has_binding_for_trigger(
         .any(|binding| binding.binding.trigger == trigger)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 fn dispatch_matching_bindings(
     bindings: &[NativeMonitoredBinding],
     trigger: NativeHotkeyTrigger,
@@ -196,7 +198,7 @@ fn dispatch_matching_bindings(
     matched
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 #[derive(Default)]
 struct NativeComboState {
     base_pressed: bool,
@@ -204,7 +206,7 @@ struct NativeComboState {
     combo_used: bool,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 fn dispatch_native_base_edge(
     state: &mut NativeComboState,
     bindings: &[NativeMonitoredBinding],
@@ -246,7 +248,7 @@ fn dispatch_native_base_edge(
     dispatch_matching_bindings(bindings, base, false, handler)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "windows", test))]
 fn dispatch_native_combo_edge(
     state: &mut NativeComboState,
     bindings: &[NativeMonitoredBinding],
@@ -270,357 +272,6 @@ fn dispatch_native_combo_edge(
         state.pending_base_press = false;
     }
     dispatch_matching_bindings(bindings, trigger, pressed, handler)
-}
-
-#[cfg(target_os = "macos")]
-mod platform {
-    use super::{
-        dispatch_native_base_edge, dispatch_native_combo_edge, monitored_bindings_for_base,
-        NativeComboKey, NativeComboState, NativeHotkeyHandler, NativeHotkeyTrigger,
-        NativeMonitoredBinding,
-    };
-    use std::ffi::c_void;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
-    const STARTUP_TIMEOUT: Duration = Duration::from_secs(3);
-
-    type CgEventMask = u64;
-    type CgEventType = u32;
-    type CgEventTapLocation = u32;
-    type CgEventTapPlacement = u32;
-    type CgEventTapOptions = u32;
-    type CgEventField = u32;
-    type CgEventFlags = u64;
-    type CfStringRef = *const c_void;
-    type CfAllocatorRef = *const c_void;
-
-    #[repr(C)]
-    struct OpaqueCgEvent(c_void);
-    type CgEventRef = *mut OpaqueCgEvent;
-
-    #[repr(C)]
-    struct OpaqueCfMachPort(c_void);
-    type CfMachPortRef = *mut OpaqueCfMachPort;
-
-    #[repr(C)]
-    struct OpaqueCfRunLoop(c_void);
-    type CfRunLoopRef = *mut OpaqueCfRunLoop;
-
-    #[repr(C)]
-    struct OpaqueCfRunLoopSource(c_void);
-    type CfRunLoopSourceRef = *mut OpaqueCfRunLoopSource;
-
-    const SESSION_EVENT_TAP: CgEventTapLocation = 1;
-    const HEAD_INSERT: CgEventTapPlacement = 0;
-    const TAP_OPTION_DEFAULT: CgEventTapOptions = 0;
-
-    const KEY_DOWN: CgEventType = 10;
-    const KEY_UP: CgEventType = 11;
-    const FLAGS_CHANGED: CgEventType = 12;
-    const TAP_DISABLED_BY_TIMEOUT: CgEventType = 0xFFFF_FFFE;
-    const TAP_DISABLED_BY_USER_INPUT: CgEventType = 0xFFFF_FFFF;
-
-    const KEYBOARD_EVENT_KEYCODE: CgEventField = 9;
-    const FLAG_MASK_SECONDARY_FN: CgEventFlags = 0x0080_0000;
-    const FLAG_MASK_SHIFT: CgEventFlags = 0x0002_0000;
-    const FN_KEYCODE: i64 = 63;
-    const SPACE_KEYCODE: i64 = 49;
-    const LEFT_SHIFT_KEYCODE: i64 = 56;
-
-    type CgEventTapCallBack = extern "C" fn(
-        proxy: *mut c_void,
-        event_type: CgEventType,
-        event: CgEventRef,
-        user_info: *mut c_void,
-    ) -> CgEventRef;
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGEventTapCreate(
-            tap: CgEventTapLocation,
-            place: CgEventTapPlacement,
-            options: CgEventTapOptions,
-            events_of_interest: CgEventMask,
-            callback: CgEventTapCallBack,
-            user_info: *mut c_void,
-        ) -> CfMachPortRef;
-        fn CGEventTapEnable(tap: CfMachPortRef, enable: bool);
-        fn CGEventGetIntegerValueField(event: CgEventRef, field: CgEventField) -> i64;
-        fn CGEventGetFlags(event: CgEventRef) -> CgEventFlags;
-    }
-
-    #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
-        fn CFMachPortCreateRunLoopSource(
-            allocator: CfAllocatorRef,
-            port: CfMachPortRef,
-            order: isize,
-        ) -> CfRunLoopSourceRef;
-        fn CFRunLoopGetCurrent() -> CfRunLoopRef;
-        fn CFRunLoopAddSource(rl: CfRunLoopRef, source: CfRunLoopSourceRef, mode: CfStringRef);
-        fn CFRunLoopRun();
-        fn CFRunLoopStop(rl: CfRunLoopRef);
-        fn CFRelease(cf: *const c_void);
-        static kCFRunLoopCommonModes: CfStringRef;
-    }
-
-    struct MacShutdownHandles {
-        tap: Mutex<Option<CfMachPortRef>>,
-        runloop: Mutex<Option<CfRunLoopRef>>,
-        cancelled: AtomicBool,
-    }
-
-    unsafe impl Send for MacShutdownHandles {}
-    unsafe impl Sync for MacShutdownHandles {}
-
-    impl MacShutdownHandles {
-        fn new() -> Self {
-            Self {
-                tap: Mutex::new(None),
-                runloop: Mutex::new(None),
-                cancelled: AtomicBool::new(false),
-            }
-        }
-
-        fn shutdown(&self) {
-            self.cancelled.store(true, Ordering::SeqCst);
-            if let Some(tap) = self.tap.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-                unsafe { CGEventTapEnable(*tap, false) };
-            }
-            if let Some(runloop) = self
-                .runloop
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-            {
-                unsafe { CFRunLoopStop(*runloop) };
-            }
-        }
-    }
-
-    pub struct PlatformNativeMonitor {
-        handles: Arc<MacShutdownHandles>,
-    }
-
-    impl PlatformNativeMonitor {
-        pub fn start(
-            bindings: Vec<super::NativeHotkeyBinding>,
-            handler: NativeHotkeyHandler,
-        ) -> Result<Self, String> {
-            let bindings = monitored_bindings_for_base(bindings, NativeHotkeyTrigger::Fn);
-            if bindings.is_empty() {
-                return Err("macOS native hotkeys currently support Fn only".to_string());
-            }
-
-            let handles = Arc::new(MacShutdownHandles::new());
-            let thread_handles = Arc::clone(&handles);
-            let (status_tx, status_rx) = mpsc::channel();
-            thread::Builder::new()
-                .name("opentypeless-native-hotkey-mac".to_string())
-                .spawn(move || run_event_tap_loop(bindings, handler, thread_handles, status_tx))
-                .map_err(|error| {
-                    format!("Failed to spawn macOS native hotkey monitor thread: {error}")
-                })?;
-
-            match status_rx.recv_timeout(STARTUP_TIMEOUT) {
-                Ok(Ok(())) => Ok(Self { handles }),
-                Ok(Err(error)) => {
-                    handles.shutdown();
-                    Err(error)
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    handles.shutdown();
-                    Err(
-                        "Timed out starting macOS native hotkey EventTap after 3 seconds"
-                            .to_string(),
-                    )
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    handles.shutdown();
-                    Err(
-                        "macOS native hotkey EventTap thread exited before startup completed"
-                            .to_string(),
-                    )
-                }
-            }
-        }
-    }
-
-    impl Drop for PlatformNativeMonitor {
-        fn drop(&mut self) {
-            self.handles.shutdown();
-        }
-    }
-
-    struct CallbackContext {
-        bindings: Vec<NativeMonitoredBinding>,
-        handler: NativeHotkeyHandler,
-        handles: Arc<MacShutdownHandles>,
-        state: Mutex<NativeComboState>,
-    }
-
-    fn run_event_tap_loop(
-        bindings: Vec<NativeMonitoredBinding>,
-        handler: NativeHotkeyHandler,
-        handles: Arc<MacShutdownHandles>,
-        status_tx: mpsc::Sender<Result<(), String>>,
-    ) {
-        let context = Box::into_raw(Box::new(CallbackContext {
-            bindings,
-            handler,
-            handles: Arc::clone(&handles),
-            state: Mutex::new(NativeComboState::default()),
-        }));
-        let mask: CgEventMask = (1u64 << FLAGS_CHANGED) | (1u64 << KEY_DOWN) | (1u64 << KEY_UP);
-
-        unsafe {
-            let tap = CGEventTapCreate(
-                SESSION_EVENT_TAP,
-                HEAD_INSERT,
-                TAP_OPTION_DEFAULT,
-                mask,
-                event_tap_callback,
-                context as *mut c_void,
-            );
-            if tap.is_null() {
-                drop(Box::from_raw(context));
-                let _ = status_tx.send(Err(
-                    "Failed to create macOS native hotkey EventTap; Accessibility permission may be denied"
-                        .to_string(),
-                ));
-                return;
-            }
-            *handles.tap.lock().unwrap_or_else(|e| e.into_inner()) = Some(tap);
-
-            let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
-            if source.is_null() {
-                CGEventTapEnable(tap, false);
-                *handles.tap.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                CFRelease(tap as *const c_void);
-                drop(Box::from_raw(context));
-                let _ = status_tx.send(Err(
-                    "Failed to create macOS native hotkey EventTap run loop source".to_string(),
-                ));
-                return;
-            }
-
-            let runloop = CFRunLoopGetCurrent();
-            *handles.runloop.lock().unwrap_or_else(|e| e.into_inner()) = Some(runloop);
-
-            if handles.cancelled.load(Ordering::SeqCst) {
-                CGEventTapEnable(tap, false);
-                CFRelease(source as *const c_void);
-                *handles.tap.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                *handles.runloop.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                CFRelease(tap as *const c_void);
-                drop(Box::from_raw(context));
-                let _ = status_tx.send(Err(
-                    "macOS native hotkey EventTap startup was cancelled".to_string()
-                ));
-                return;
-            }
-
-            CFRunLoopAddSource(runloop, source, kCFRunLoopCommonModes);
-            CFRelease(source as *const c_void);
-            CGEventTapEnable(tap, true);
-
-            if status_tx.send(Ok(())).is_err() || handles.cancelled.load(Ordering::SeqCst) {
-                handles.shutdown();
-            }
-
-            if !handles.cancelled.load(Ordering::SeqCst) {
-                CFRunLoopRun();
-            }
-
-            if let Some(tap) = handles.tap.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                CGEventTapEnable(tap, false);
-                CFRelease(tap as *const c_void);
-            }
-            *handles.runloop.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            drop(Box::from_raw(context));
-        }
-    }
-
-    extern "C" fn event_tap_callback(
-        _proxy: *mut c_void,
-        event_type: CgEventType,
-        event: CgEventRef,
-        user_info: *mut c_void,
-    ) -> CgEventRef {
-        if user_info.is_null() {
-            return event;
-        }
-        let context = unsafe { &*(user_info as *const CallbackContext) };
-
-        match event_type {
-            TAP_DISABLED_BY_TIMEOUT | TAP_DISABLED_BY_USER_INPUT => {
-                if let Some(tap) = context
-                    .handles
-                    .tap
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_ref()
-                {
-                    unsafe { CGEventTapEnable(*tap, true) };
-                }
-            }
-            FLAGS_CHANGED => handle_flags_changed(context, event),
-            KEY_DOWN => handle_key_event(context, event, true),
-            KEY_UP => handle_key_event(context, event, false),
-            _ => {}
-        }
-
-        event
-    }
-
-    fn handle_flags_changed(context: &CallbackContext, event: CgEventRef) {
-        let keycode = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) };
-        let flags = unsafe { CGEventGetFlags(event) };
-        if keycode == FN_KEYCODE {
-            let pressed = (flags & FLAG_MASK_SECONDARY_FN) != 0;
-            let mut state = context.state.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = dispatch_native_base_edge(
-                &mut state,
-                &context.bindings,
-                NativeHotkeyTrigger::Fn,
-                pressed,
-                &context.handler,
-            );
-            return;
-        }
-
-        if keycode == LEFT_SHIFT_KEYCODE {
-            let pressed = (flags & FLAG_MASK_SHIFT) != 0;
-            let mut state = context.state.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = dispatch_native_combo_edge(
-                &mut state,
-                &context.bindings,
-                NativeHotkeyTrigger::Fn,
-                NativeComboKey::LeftShift,
-                pressed,
-                &context.handler,
-            );
-        }
-    }
-
-    fn handle_key_event(context: &CallbackContext, event: CgEventRef, pressed: bool) {
-        let keycode = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) };
-        if keycode != SPACE_KEYCODE {
-            return;
-        }
-        let mut state = context.state.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = dispatch_native_combo_edge(
-            &mut state,
-            &context.bindings,
-            NativeHotkeyTrigger::Fn,
-            NativeComboKey::Space,
-            pressed,
-            &context.handler,
-        );
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -952,7 +603,7 @@ mod platform {
     }
 }
 
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+#[cfg(not(target_os = "windows"))]
 mod platform {
     use super::{NativeHotkeyBinding, NativeHotkeyHandler};
 

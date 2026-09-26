@@ -2,7 +2,6 @@ import { cleanup, render, screen } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DoneStep } from '../DoneStep'
-import * as tauri from '../../../lib/tauri'
 
 const mockConfig = {
   hotkey: 'Fn',
@@ -55,9 +54,6 @@ vi.mock('../../../stores/appStore', () => ({
 }))
 
 vi.mock('../../../lib/tauri', () => ({
-  checkAccessibilityPermission: vi.fn().mockResolvedValue(true),
-  requestAccessibilityPermission: vi.fn().mockResolvedValue(true),
-  waitForAccessibilityPermission: vi.fn().mockResolvedValue(true),
   resumeHotkey: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -109,26 +105,5 @@ describe('DoneStep', () => {
 
     expect(screen.getByText('Press Fn')).toBeInTheDocument()
     expect(screen.queryByText(/Ask Anything/)).not.toBeInTheDocument()
-  })
-
-  it('does not repeat the Accessibility grant already handled by Permissions', () => {
-    const originalPlatform = window.navigator.platform
-    Object.defineProperty(window.navigator, 'platform', {
-      value: 'MacIntel',
-      configurable: true,
-    })
-    Object.assign(mockConfig, { output_mode: 'keyboard' })
-
-    try {
-      render(<DoneStep />)
-
-      expect(tauri.checkAccessibilityPermission).not.toHaveBeenCalled()
-      expect(screen.queryByText('onboarding.done.accessibilityRequired')).not.toBeInTheDocument()
-    } finally {
-      Object.defineProperty(window.navigator, 'platform', {
-        value: originalPlatform,
-        configurable: true,
-      })
-    }
   })
 })

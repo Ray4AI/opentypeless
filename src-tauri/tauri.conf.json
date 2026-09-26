@@ -10,7 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -63,22 +62,10 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.opentypeless.com https://accounts.google.com https://github.com"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
     }
   },
-  "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": [
-          "opentypeless"
-        ]
-      }
-    },
-    "updater": {
-      "endpoints": [],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBNEFFRjEzN0ZCQTNBMEQKUldRTk9ycC9FKzlLZXVKSFZLNUYxdFZ2Ri9Ya0FRaGsvUEZ1bkJRTDZ6dHZ1emhtZWR6QkprS3kK"
-    }
-  },
+  "plugins": {},
   "bundle": {
     "active": true,
     "targets": "all",
@@ -87,14 +74,8 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": {
-      "minimumSystemVersion": "10.15",
-      "entitlements": "./Entitlements.plist",
-      "infoPlist": "./Info.plist"
-    },
     "linux": {
       "appimage": {
         "files": {

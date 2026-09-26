@@ -22,17 +22,6 @@ afterEach(() => {
 })
 
 describe('appStore platform default shortcuts', () => {
-  it('uses the Fn shortcut family on macOS', async () => {
-    const config = await loadConfigForPlatform('MacIntel')
-
-    expect(config.hotkey).toBe('Fn')
-    expect(config.ask_hotkey).toBe('Fn+Space')
-    expect(config.hotkey_mode).toBe('toggle')
-    expect(config.hotkeys.dictation).toEqual({ primary: 'Fn', modifiers: [] })
-    expect(config.hotkeys.ask).toEqual({ primary: 'Space', modifiers: ['Fn'] })
-    expect(config.hotkeys.translate).toEqual({ primary: 'LeftShift', modifiers: ['Fn'] })
-  })
-
   it('uses conservative Ctrl shortcuts on Windows', async () => {
     const config = await loadConfigForPlatform('Win32')
 

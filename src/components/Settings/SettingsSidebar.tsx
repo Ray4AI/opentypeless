@@ -6,6 +6,7 @@ import {
   Info,
   LayoutGrid,
   SlidersHorizontal,
+  RefreshCw,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
@@ -17,6 +18,7 @@ const PANES = [
   { id: 'llm', labelKey: 'settings.aiPolish', icon: Sparkles },
   { id: 'dictionary', labelKey: 'settings.dictionary', icon: BookOpen },
   { id: 'scenes', labelKey: 'settings.scenes', icon: LayoutGrid },
+  { id: 'sync', labelKey: 'settings.sync', icon: RefreshCw },
   { id: 'advanced', labelKey: 'settings.advanced', icon: SlidersHorizontal },
   { id: 'about', labelKey: 'settings.about', icon: Info },
 ] as const

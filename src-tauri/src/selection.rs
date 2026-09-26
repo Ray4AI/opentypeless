@@ -1,4 +1,3 @@
-#[cfg(not(target_os = "macos"))]
 use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 
 const CLIPBOARD_COPY_SETTLE_MS: u64 = 100;
@@ -25,31 +24,6 @@ fn clipboard_copy_sentinel() -> String {
     )
 }
 
-#[cfg(target_os = "macos")]
-fn copy_selected_text_to_clipboard() -> bool {
-    match std::process::Command::new("/usr/bin/osascript")
-        .args([
-            "-e",
-            r#"tell application "System Events" to keystroke "c" using command down"#,
-        ])
-        .status()
-    {
-        Ok(status) if status.success() => true,
-        Ok(status) => {
-            tracing::warn!(
-                "macOS selected-text copy failed with exit code: {:?}",
-                status.code()
-            );
-            false
-        }
-        Err(e) => {
-            tracing::warn!("Failed to run osascript for selected-text copy: {}", e);
-            false
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
 fn copy_selected_text_to_clipboard() -> bool {
     let Ok(mut enigo) = Enigo::new(&EnigoSettings::default()) else {
         return false;

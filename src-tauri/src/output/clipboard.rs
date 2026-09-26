@@ -205,25 +205,6 @@ fn restore_clipboard_if_safe(
     clear_pending_clipboard_restore(restore_id);
 }
 
-#[cfg(target_os = "macos")]
-fn simulate_paste(_shortcut: PasteShortcut) -> Result<(), AppError> {
-    let status = std::process::Command::new("osascript")
-        .args([
-            "-e",
-            r#"tell application "System Events" to keystroke "v" using command down"#,
-        ])
-        .status()
-        .map_err(|e| AppError::Output(format!("osascript error: {}", e)))?;
-    if !status.success() {
-        return Err(AppError::Output(format!(
-            "osascript paste failed with exit code: {:?}",
-            status.code()
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
 fn paste_keys(shortcut: PasteShortcut) -> (Vec<enigo::Key>, enigo::Key) {
     use enigo::Key;
     match shortcut {
@@ -233,7 +214,6 @@ fn paste_keys(shortcut: PasteShortcut) -> (Vec<enigo::Key>, enigo::Key) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 fn simulate_paste(shortcut: PasteShortcut) -> Result<(), AppError> {
     super::windows_modifier_guard::wait_for_modifier_release()?;
 

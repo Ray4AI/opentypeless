@@ -1,14 +1,10 @@
-import { StrictMode } from 'react'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTauriEvents } from '../useTauriEvents'
 import { useAppStore } from '../../stores/appStore'
-import { useCloudServiceStore } from '../../stores/cloudServiceStore'
 import { toast } from '../../components/toast-service'
 
 const eventListeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>())
-const invalidateCloudSessionOnce = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-const refreshSubscription = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((event: string, handler: (event: { payload: unknown }) => void) => {
@@ -36,19 +32,6 @@ vi.mock('../../components/toast-service', () => ({
   toast: vi.fn(),
 }))
 
-vi.mock('../../lib/cloud-session', () => ({
-  invalidateCloudSessionOnce,
-}))
-
-vi.mock('../../stores/authStore', () => ({
-  useAuthStore: {
-    getState: () => ({
-      user: { id: 'user-1' },
-      refreshSubscription,
-    }),
-  },
-}))
-
 function HookHarness() {
   useTauriEvents()
   return null
@@ -62,7 +45,6 @@ describe('useTauriEvents', () => {
       lastContext: null,
       activeVoiceMode: null,
     })
-    useCloudServiceStore.setState({ incident: null })
   })
 
   afterEach(() => {
@@ -105,24 +87,6 @@ describe('useTauriEvents', () => {
     })
 
     expect(useAppStore.getState().pipelineError).toBeNull()
-  })
-
-  it('forwards one Rust session-invalid event to the shared coordinator in Strict Mode', async () => {
-    render(
-      <StrictMode>
-        <HookHarness />
-      </StrictMode>,
-    )
-
-    await waitFor(() => {
-      expect(eventListeners.has('auth:session-invalid')).toBe(true)
-    })
-
-    act(() => {
-      eventListeners.get('auth:session-invalid')?.({ payload: undefined })
-    })
-
-    expect(invalidateCloudSessionOnce).toHaveBeenCalledTimes(1)
   })
 
   it('stores only the safe context summary emitted for the completed operation', async () => {
@@ -171,59 +135,6 @@ describe('useTauriEvents', () => {
     expect(useAppStore.getState().activeVoiceMode).toBeNull()
   })
 
-  it('shows a persistent incident only for a failing managed-cloud provider', async () => {
-    useAppStore.setState((state) => ({
-      config: { ...state.config, stt_provider: 'cloud', llm_provider: 'deepseek' },
-    }))
-    render(<HookHarness />)
-    await waitFor(() => expect(eventListeners.has('pipeline:error')).toBe(true))
-
-    act(() => {
-      eventListeners.get('pipeline:error')?.({
-        payload: { code: 'stt_failed', details: 'HTTP 503' },
-      })
-    })
-
-    expect(useCloudServiceStore.getState().incident).toMatchObject({
-      kind: 'stt',
-      code: 'stt_failed',
-    })
-  })
-
-  it('does not mislabel BYOK failures or quota errors as a cloud outage', async () => {
-    useAppStore.setState((state) => ({
-      config: { ...state.config, stt_provider: 'openai-whisper', llm_provider: 'deepseek' },
-    }))
-    render(<HookHarness />)
-    await waitFor(() => expect(eventListeners.has('pipeline:error')).toBe(true))
-
-    act(() => {
-      eventListeners.get('pipeline:error')?.({ payload: { code: 'stt_failed' } })
-    })
-    expect(useCloudServiceStore.getState().incident).toBeNull()
-
-    useAppStore.setState((state) => ({
-      config: { ...state.config, stt_provider: 'cloud' },
-    }))
-    act(() => {
-      eventListeners.get('pipeline:error')?.({ payload: { code: 'stt_quota_exceeded' } })
-    })
-    expect(useCloudServiceStore.getState().incident).toBeNull()
-  })
-
-  it('clears an old incident when the user starts a manual retry', async () => {
-    useCloudServiceStore.setState({
-      incident: { kind: 'llm', code: 'llm_failed', occurredAt: '2026-08-26T10:00:00.000Z' },
-    })
-    render(<HookHarness />)
-    await waitFor(() => expect(eventListeners.has('pipeline:state')).toBe(true))
-
-    act(() => {
-      eventListeners.get('pipeline:state')?.({ payload: 'preparing' })
-    })
-    expect(useCloudServiceStore.getState().incident).toBeNull()
-  })
-
   it('shows deadline warnings and explains an automatic graceful stop', async () => {
     render(<HookHarness />)
 
@@ -236,8 +147,8 @@ describe('useTauriEvents', () => {
       sessionId: 7,
       recordingKind: 'dictation',
       effectiveMaxSeconds: 600,
-      providerId: 'cloud',
-      explanationKey: 'recordingLimits.reasons.managedCapability',
+      providerId: 'deepgram',
+      explanationKey: 'recordingLimits.reasons.providerDuration',
     }
     act(() => {
       eventListeners.get('recording:deadline-warning')?.({
@@ -248,29 +159,5 @@ describe('useTauriEvents', () => {
 
     expect(toast).toHaveBeenNthCalledWith(1, 'recordingLimits.deadlineWarning', 'info')
     expect(toast).toHaveBeenNthCalledWith(2, 'recordingLimits.deadlineReached', 'info')
-  })
-
-  it('refreshes managed usage after output without polling idle windows', async () => {
-    useAppStore.setState({
-      config: {
-        ...useAppStore.getState().config,
-        stt_provider: 'cloud',
-      },
-    })
-    render(<HookHarness />)
-
-    await waitFor(() => expect(eventListeners.has('pipeline:state')).toBe(true))
-    act(() => {
-      eventListeners.get('pipeline:state')?.({ payload: 'preparing' })
-      eventListeners.get('pipeline:state')?.({ payload: 'recording' })
-      eventListeners.get('pipeline:state')?.({ payload: 'idle' })
-    })
-
-    expect(refreshSubscription).toHaveBeenCalledTimes(1)
-
-    act(() => {
-      eventListeners.get('pipeline:state')?.({ payload: 'idle' })
-    })
-    expect(refreshSubscription).toHaveBeenCalledTimes(1)
   })
 })

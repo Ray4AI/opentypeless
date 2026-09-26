@@ -395,12 +395,20 @@ pub struct AppConfig {
     pub recording_limit_mode: crate::stt::capabilities::RecordingLimitMode,
     pub custom_recording_limit_seconds: u32,
     pub max_recording_seconds: u32,
-    pub managed_stt_capability_state: Option<crate::stt::capabilities::ManagedSttCapabilityState>,
     pub history_enabled: bool,
     pub history_retention_days: u32,
     pub history_max_entries: u32,
     pub ui_language: String,
     pub capsule_auto_hide: bool,
+    /// ── WebDAV settings sync ───────────────────────────────────────────
+    /// Full URL of the remote backup file, e.g.
+    /// `https://dav.example.com/dav/opentypeless-settings.json`.
+    pub webdav_url: String,
+    /// WebDAV account name. The password lives in the system credential
+    /// vault (`sync.webdav`), never in the config file.
+    pub webdav_username: String,
+    /// Upload settings to WebDAV automatically after each settings save.
+    pub webdav_auto_sync: bool,
     /// ── Advanced (power-user) overrides ─────────────────────────────────
     /// Ask Anything output token budget. Default matches the polish budget so a
     /// reasoning model can never starve its own answer.
@@ -473,12 +481,14 @@ impl Default for AppConfig {
             recording_limit_mode: crate::stt::capabilities::RecordingLimitMode::Auto,
             custom_recording_limit_seconds: 600,
             max_recording_seconds: 30,
-            managed_stt_capability_state: None,
             history_enabled: true,
             history_retention_days: 0,
             history_max_entries: DEFAULT_HISTORY_MAX_ENTRIES,
             ui_language: "en".to_string(),
             capsule_auto_hide: false,
+            webdav_url: String::new(),
+            webdav_username: String::new(),
+            webdav_auto_sync: false,
             ask_max_tokens: DEFAULT_ASK_MAX_TOKENS,
             ask_temperature: DEFAULT_ASK_TEMPERATURE,
             ask_system_prompt: String::new(),
@@ -502,31 +512,11 @@ impl AppConfig {
     }
 
     fn migrate_legacy_platform_hotkeys(&mut self) {
-        #[cfg(target_os = "macos")]
-        if self.hotkey == "Alt+/" {
-            self.hotkey = "Option+/".to_string();
-        }
-        #[cfg(target_os = "macos")]
-        if self.hotkey == "Option+/" && self.hotkey_mode == "hold" {
-            self.hotkey = "Fn".to_string();
-            self.hotkey_mode = "toggle".to_string();
-        }
         #[cfg(target_os = "windows")]
         if self.hotkey == "RightAlt" && self.hotkey_mode == "toggle" {
             self.hotkey = "Ctrl+/".to_string();
             self.hotkey_mode = "hold".to_string();
         }
-        #[cfg(target_os = "macos")]
-        if self.ask_hotkey == "Alt+Shift+/"
-            || self.ask_hotkey == "Option+Shift+/"
-            || self.ask_hotkey == "Command+Shift+/"
-            || self.ask_hotkey == "Command+/"
-            || self.ask_hotkey == "Command+。"
-            || self.ask_hotkey == "Command+."
-        {
-            self.ask_hotkey = default_ask_hotkey().to_string();
-        }
-        #[cfg(not(target_os = "macos"))]
         if self.ask_hotkey == "Ctrl+Shift+/"
             || self.ask_hotkey == "Control+Shift+/"
             || self.ask_hotkey == "Ctrl+/"
@@ -750,11 +740,7 @@ impl AppConfig {
     }
 
     pub(crate) fn recompute_recording_limit_mirror(&mut self) {
-        let resolved = crate::stt::capabilities::resolve_recording_limit(
-            self,
-            None,
-            chrono::Utc::now().timestamp(),
-        );
+        let resolved = crate::stt::capabilities::resolve_recording_limit(self);
         self.max_recording_seconds = resolved.effective_max_seconds;
     }
 
@@ -849,47 +835,19 @@ fn truncate_prompt(value: &str) -> String {
 }
 
 fn default_dictation_hotkey() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "Fn"
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "Ctrl+/"
-    }
+    "Ctrl+/"
 }
 
 fn default_dictation_hotkey_mode() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "toggle"
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "hold"
-    }
+    "hold"
 }
 
 fn default_ask_hotkey() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "Fn+Space"
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "Ctrl+."
-    }
+    "Ctrl+."
 }
 
 fn default_translate_hotkey() -> Option<&'static str> {
-    #[cfg(target_os = "macos")]
-    {
-        Some("Fn+LeftShift")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Some("Ctrl+Shift+/")
-    }
+    Some("Ctrl+Shift+/")
 }
 
 fn normalize_hotkey_mode(value: &str) -> &'static str {
@@ -1383,7 +1341,6 @@ pub struct HistoryEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryProviderKind {
-    ManagedCloud,
     Byok,
     Local,
 }
@@ -1391,7 +1348,6 @@ pub enum HistoryProviderKind {
 impl HistoryProviderKind {
     fn as_db_value(self) -> &'static str {
         match self {
-            Self::ManagedCloud => "managed_cloud",
             Self::Byok => "byok",
             Self::Local => "local",
         }
@@ -1399,8 +1355,9 @@ impl HistoryProviderKind {
 
     fn from_db_value(value: &str) -> Self {
         match value {
-            "managed_cloud" => Self::ManagedCloud,
-            "byok" => Self::Byok,
+            // Legacy rows written by the removed managed-cloud provider map to BYOK
+            // (remote transcription) instead of the local fallback.
+            "byok" | "managed_cloud" => Self::Byok,
             _ => Self::Local,
         }
     }
@@ -3248,34 +3205,6 @@ mod tests {
         assert!(config.auto_start);
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn app_config_new_install_uses_fn_toggle_on_macos() {
-        let config = AppConfig::new_install_default();
-        assert_eq!(config.hotkey, "Fn");
-        assert_eq!(config.hotkeys.dictation.primary, "Fn");
-        assert_eq!(config.hotkeys.dictation.modifiers, Vec::<String>::new());
-        assert_eq!(config.hotkey_mode, "toggle");
-        assert_eq!(config.hotkeys.dictation_mode, "toggle");
-        assert_eq!(config.ask_hotkey, "Fn+Space");
-        assert_eq!(
-            config
-                .hotkeys
-                .ask
-                .as_ref()
-                .and_then(ShortcutBinding::to_hotkey_string),
-            Some("Fn+Space".to_string())
-        );
-        assert_eq!(
-            config
-                .hotkeys
-                .translate
-                .as_ref()
-                .and_then(ShortcutBinding::to_hotkey_string),
-            Some("Fn+LeftShift".to_string())
-        );
-    }
-
     #[cfg(target_os = "windows")]
     #[test]
     fn app_config_new_install_keeps_ctrl_slash_on_windows() {
@@ -3304,7 +3233,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn app_config_new_install_keeps_ctrl_slash_on_linux() {
         let config = AppConfig::new_install_default();
@@ -3319,24 +3248,6 @@ mod tests {
                 .and_then(ShortcutBinding::to_hotkey_string),
             Some("Ctrl+Shift+/".to_string())
         );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn app_config_migrates_old_mac_default_hotkey_to_fn() {
-        let value = serde_json::json!({
-            "hotkey": "Option+/",
-            "ask_hotkey": "Command+.",
-            "hotkey_mode": "hold"
-        });
-
-        let config = AppConfig::from_stored_value(value).unwrap();
-
-        assert_eq!(config.hotkey, "Fn");
-        assert_eq!(config.hotkeys.dictation.primary, "Fn");
-        assert_eq!(config.hotkeys.dictation.modifiers, Vec::<String>::new());
-        assert_eq!(config.hotkey_mode, "toggle");
-        assert_eq!(config.hotkeys.dictation_mode, "toggle");
     }
 
     #[test]
@@ -3384,39 +3295,6 @@ mod tests {
         assert!(config.capsule_auto_hide);
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn app_config_migrates_legacy_mac_alt_slash_label() {
-        let value = serde_json::json!({
-            "hotkey": "Alt+/"
-        });
-
-        let config = AppConfig::from_stored_value(value).unwrap();
-
-        assert_eq!(config.hotkey, "Option+/");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn app_config_migrates_legacy_mac_ask_hotkey_defaults() {
-        for legacy in [
-            "Alt+Shift+/",
-            "Option+Shift+/",
-            "Command+Shift+/",
-            "Command+/",
-            "Command+。",
-        ] {
-            let value = serde_json::json!({
-                "ask_hotkey": legacy
-            });
-
-            let config = AppConfig::from_stored_value(value).unwrap();
-
-            assert_eq!(config.ask_hotkey, "Fn+Space");
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn app_config_migrates_legacy_non_macos_ask_hotkey_defaults() {
         for legacy in ["Ctrl+Shift+/", "Control+Shift+/", "Ctrl+/", "Control+/"] {
@@ -3426,7 +3304,6 @@ mod tests {
 
             let config = AppConfig::from_stored_value(value).unwrap();
 
-            #[cfg(not(target_os = "macos"))]
             assert_eq!(config.ask_hotkey, "Ctrl+.");
         }
     }
@@ -3825,7 +3702,7 @@ mod tests {
         entry.context_label = "GitHub".to_string();
         entry.context_icon_key = "github".to_string();
         entry.context_family = ContextFamily::DeveloperCollaboration;
-        entry.provider_kind = HistoryProviderKind::ManagedCloud;
+        entry.provider_kind = HistoryProviderKind::Byok;
         store.add(entry).await.unwrap();
 
         let entries = store.list(10, 0).await.unwrap();
@@ -3834,7 +3711,7 @@ mod tests {
             entries[0].context_family,
             ContextFamily::DeveloperCollaboration
         );
-        assert_eq!(entries[0].provider_kind, HistoryProviderKind::ManagedCloud);
+        assert_eq!(entries[0].provider_kind, HistoryProviderKind::Byok);
 
         let conn = store.conn.lock().unwrap();
         let raw_values: (String, String) = conn

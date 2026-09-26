@@ -7,7 +7,6 @@
 ///
 use super::whisper_compat::{self, WhisperCompatConfig};
 
-pub const APPLE_SPEECH_PROVIDER: &str = "apple-speech";
 pub const CUSTOM_WHISPER_PROVIDER: &str = "custom-whisper";
 pub const CUSTOM_WHISPER_FALLBACK_PROVIDER: &str = "custom-whisper-fallback";
 pub const CUSTOM_WHISPER_PRESET_SPEACHES: &str = "speaches";
@@ -158,10 +157,7 @@ pub fn build_custom_whisper_request_policy(
 }
 
 pub fn stt_provider_requires_api_key(provider: &str) -> bool {
-    !matches!(
-        provider,
-        "cloud" | CUSTOM_WHISPER_PROVIDER | APPLE_SPEECH_PROVIDER
-    )
+    !matches!(provider, CUSTOM_WHISPER_PROVIDER)
 }
 
 #[cfg(test)]
@@ -216,14 +212,9 @@ mod tests {
     }
 
     #[test]
-    fn test_cloud_not_in_whisper_config() {
-        assert!(get_whisper_config("cloud").is_none());
-    }
-
-    #[test]
-    fn apple_speech_is_builtin_local_and_does_not_require_api_key() {
-        assert!(!stt_provider_requires_api_key(APPLE_SPEECH_PROVIDER));
-        assert!(get_whisper_config(APPLE_SPEECH_PROVIDER).is_none());
+    fn custom_whisper_is_keyless_and_unknown_providers_are_keyed() {
+        assert!(!stt_provider_requires_api_key(CUSTOM_WHISPER_PROVIDER));
+        assert!(stt_provider_requires_api_key("deepgram"));
     }
 
     #[test]

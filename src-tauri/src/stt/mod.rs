@@ -1,12 +1,9 @@
 pub mod aliyun_qwen3_asr;
-pub mod apple_speech;
 pub mod assemblyai;
 pub mod capabilities;
-pub mod cloud;
 pub mod config;
 pub mod deepgram;
 pub mod failed_audio;
-pub mod managed_audio;
 pub mod volcengine;
 pub mod whisper_compat;
 
@@ -25,8 +22,6 @@ pub struct SttConfig {
     pub smart_format: bool,
     pub sample_rate: u32,
     pub resource_id: Option<String>,
-    pub operation_id: Option<String>,
-    pub managed_audio: Option<managed_audio::ManagedAudioEncodingConfig>,
     pub provider_region: Option<String>,
 }
 
@@ -38,8 +33,6 @@ impl Default for SttConfig {
             smart_format: true,
             sample_rate: 16000,
             resource_id: None,
-            operation_id: None,
-            managed_audio: None,
             provider_region: None,
         }
     }
@@ -77,23 +70,10 @@ pub fn create_provider(
     custom_whisper_policy: Option<whisper_compat::WhisperCompatRequestPolicy>,
 ) -> Result<Box<dyn SttProvider>, AppError> {
     match provider_name {
-        "cloud" => {
-            let api_base_url = crate::api_base_url();
-            Ok(match client {
-                Some(ref c) => Box::new(cloud::CloudSttProvider::with_client(
-                    api_base_url,
-                    c.clone(),
-                )),
-                None => Box::new(cloud::CloudSttProvider::new(api_base_url)),
-            })
-        }
         "assemblyai" => Ok(Box::new(assemblyai::AssemblyAiProvider::new())),
         "deepgram" => Ok(Box::new(deepgram::DeepgramProvider::new())),
         aliyun_qwen3_asr::ALIYUN_QWEN3_ASR_PROVIDER => {
             Ok(Box::new(aliyun_qwen3_asr::AliyunQwen3AsrProvider::new()))
-        }
-        apple_speech::APPLE_SPEECH_PROVIDER => {
-            Ok(Box::new(apple_speech::AppleSpeechProvider::new()))
         }
         volcengine::VOLCENGINE_DOUBAO_PROVIDER => {
             Ok(Box::new(volcengine::VolcengineDoubaoProvider::new()))
@@ -154,12 +134,6 @@ mod tests {
     fn creates_aliyun_qwen3_realtime_provider() {
         let provider = create_provider("aliyun-qwen3-asr", None, None, None).unwrap();
         assert_eq!(provider.name(), "Aliyun Qwen3 Realtime ASR");
-    }
-
-    #[test]
-    fn creates_apple_speech_builtin_local_provider() {
-        let provider = create_provider("apple-speech", None, None, None).unwrap();
-        assert_eq!(provider.name(), "Apple Speech");
     }
 
     #[test]

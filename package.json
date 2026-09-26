@@ -14,9 +14,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/tover0314-w/opentypeless"
+    "url": "https://github.com/Ray4AI/opentypeless"
   },
-  "homepage": "https://www.opentypeless.com",
+  "homepage": "https://github.com/Ray4AI/opentypeless",
   "bugs": {
     "url": "https://github.com/tover0314-w/opentypeless/issues"
   },
@@ -36,13 +36,9 @@
   "dependencies": {
     "@tauri-apps/api": "2.11.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.2",
-    "@tauri-apps/plugin-deep-link": "^2.2",
     "@tauri-apps/plugin-global-shortcut": "^2.2",
     "@tauri-apps/plugin-opener": "^2.2",
-    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.2",
-    "@tauri-apps/plugin-updater": "^2.10.1",
-    "better-auth": "1.6.25",
     "framer-motion": "^11.18",
     "i18next": "^24.2",
     "lucide-react": "^0.460",

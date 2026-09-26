@@ -62,6 +62,9 @@ type SafeScalarKey =
   | 'llm_request_timeout_secs'
   | 'ask_request_extra_params'
   | 'polish_request_extra_params'
+  | 'webdav_url'
+  | 'webdav_username'
+  | 'webdav_auto_sync'
 
 export type BackupSettings = Partial<Pick<AppConfig, SafeScalarKey>> & {
   voice_routing_flags?: VoiceRoutingFlags
@@ -203,6 +206,9 @@ export function createBackupSettings(config: AppConfig): BackupSettings {
     llm_request_timeout_secs: config.llm_request_timeout_secs,
     ask_request_extra_params: config.ask_request_extra_params,
     polish_request_extra_params: config.polish_request_extra_params,
+    webdav_url: config.webdav_url,
+    webdav_username: config.webdav_username,
+    webdav_auto_sync: config.webdav_auto_sync,
   }
 
   if (config.voice_routing_flags) {
@@ -269,6 +275,9 @@ const SAFE_SCALAR_KEYS: readonly SafeScalarKey[] = [
   'llm_request_timeout_secs',
   'ask_request_extra_params',
   'polish_request_extra_params',
+  'webdav_url',
+  'webdav_username',
+  'webdav_auto_sync',
 ]
 
 function isRecord(value: unknown): value is Record<string, unknown> {

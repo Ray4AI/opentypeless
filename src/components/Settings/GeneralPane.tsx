@@ -1,20 +1,13 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, MessageCircle } from 'lucide-react'
-import { isMacPlatform, useAppStore } from '../../stores/appStore'
+import { useAppStore } from '../../stores/appStore'
 import type { HotkeyMode, OutputMode, ShortcutBinding } from '../../stores/appStore'
-import {
-  getPlatformCapabilities,
-  getHotkeyStatus,
-  resumeHotkey,
-  startAskFlow,
-} from '../../lib/tauri'
+import { getPlatformCapabilities, getHotkeyStatus, startAskFlow } from '../../lib/tauri'
 import type { HotkeyStatus } from '../../lib/tauri'
 import { SegmentedControl } from './shared/SegmentedControl'
 import { Toggle } from './shared/Toggle'
 import { ShortcutBindingList } from './ShortcutBindingList'
-
-const MAC_ACCESSIBILITY_HOTKEY_ERROR = 'Accessibility permission may be denied'
 
 export function GeneralPane() {
   const config = useAppStore((s) => s.config)
@@ -23,12 +16,9 @@ export function GeneralPane() {
   const setPlatformCapabilities = useAppStore((s) => s.setPlatformCapabilities)
   const hotkeyRegistrationError = useAppStore((s) => s.hotkeyRegistrationError)
   const setHotkeyRegistrationError = useAppStore((s) => s.setHotkeyRegistrationError)
-  const accessibilityTrusted = useAppStore((s) => s.accessibilityTrusted)
   const { t } = useTranslation()
-  const isMac = isMacPlatform()
   const [hotkeyStatus, setHotkeyStatus] = useState<HotkeyStatus | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const accessibilityRecoveryAttemptedRef = useRef(false)
 
   useEffect(() => {
     if (platformCapabilities) return
@@ -56,30 +46,6 @@ export function GeneralPane() {
     }
   }, [config.hotkeys, hotkeyRegistrationError, setHotkeyRegistrationError])
 
-  useEffect(() => {
-    if (
-      !isMac ||
-      !accessibilityTrusted ||
-      !hotkeyRegistrationError?.includes(MAC_ACCESSIBILITY_HOTKEY_ERROR)
-    ) {
-      if (!hotkeyRegistrationError) {
-        accessibilityRecoveryAttemptedRef.current = false
-      }
-      return
-    }
-    if (accessibilityRecoveryAttemptedRef.current) return
-    accessibilityRecoveryAttemptedRef.current = true
-
-    resumeHotkey()
-      .then(() => {
-        setHotkeyRegistrationError(null)
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        setHotkeyRegistrationError(message)
-      })
-  }, [accessibilityTrusted, hotkeyRegistrationError, isMac, setHotkeyRegistrationError])
-
   const handleOpenAsk = useCallback(() => {
     startAskFlow().catch((err) => {
       console.error('Failed to start Ask flow:', err)
@@ -91,14 +57,10 @@ export function GeneralPane() {
     : hotkeyStatus && (!hotkeyStatus.dictation.valid || !hotkeyStatus.ask.valid)
       ? t('settings.hotkeyInvalid')
       : null
-  const registrationErrorCoveredByAccessibilityBanner = Boolean(
-    isMac &&
-    !accessibilityTrusted &&
-    hotkeyRegistrationError?.includes('Accessibility permission may be denied'),
-  )
-  const dictationSpecialOptions = isMac ? [{ value: 'Fn', label: 'Fn' }] : []
-  const askSpecialOptions = isMac ? [{ value: 'Fn+Space', label: 'Fn + Space' }] : []
-  const translateSpecialOptions = isMac ? [{ value: 'Fn+LeftShift', label: 'Fn + Left Shift' }] : []
+  const registrationErrorCoveredByAccessibilityBanner = false
+  const dictationSpecialOptions: { value: string; label: string }[] = []
+  const askSpecialOptions: { value: string; label: string }[] = []
+  const translateSpecialOptions: { value: string; label: string }[] = []
   const dictationBindings = config.hotkeys.dictationBindings?.length
     ? config.hotkeys.dictationBindings
     : [config.hotkeys.dictation]

@@ -7,7 +7,6 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) =>
       ({
-        'history.providers.managed_cloud': 'Cloud',
         'history.providers.byok': 'BYOK',
         'history.providers.local': 'Local',
         'history.needsBrowserAccess': 'needs browser access',
@@ -23,7 +22,7 @@ describe('AppContextMeta', () => {
         family="email"
         label="Gmail"
         time="09:42"
-        providerKind="managed_cloud"
+        providerKind="byok"
       />,
     )
 
@@ -33,7 +32,7 @@ describe('AppContextMeta', () => {
     expect(logo).toHaveAttribute('height', '16')
     expect(screen.getByText('Gmail')).toHaveClass('truncate')
     expect(screen.getByText('09:42')).toBeInTheDocument()
-    expect(screen.getByText('Cloud')).toHaveClass('max-[419px]:hidden')
+    expect(screen.getByText('BYOK')).toHaveClass('max-[419px]:hidden')
   })
 
   it('uses an existing family icon when no reviewed bitmap exists', () => {

@@ -296,15 +296,9 @@ pub(crate) fn candidate_from_signals(
             .map(UserAppMatcher::ExactWebHost)
     } else {
         let identity = signals.native_identity.as_deref()?;
-        #[cfg(target_os = "macos")]
-        let matcher = normalize_bundle_id(identity)
+        normalize_executable(identity)
             .ok()
-            .map(UserAppMatcher::NativeBundleId);
-        #[cfg(not(target_os = "macos"))]
-        let matcher = normalize_executable(identity)
-            .ok()
-            .map(UserAppMatcher::NativeExecutable);
-        matcher
+            .map(UserAppMatcher::NativeExecutable)
     }?;
 
     let suggested_label = match &matcher {
@@ -440,7 +434,6 @@ fn matcher_display_value(matcher: &UserAppMatcher, native_label: &str) -> String
 
 fn platform_display_name() -> &'static str {
     match std::env::consts::OS {
-        "macos" => "macOS",
         "windows" => "Windows",
         "linux" => "Linux",
         _ => "Desktop",

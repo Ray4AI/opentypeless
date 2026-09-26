@@ -127,26 +127,26 @@ pub fn remove_cloud_session_token<V: CredentialSecretRemover>(vault: &V) -> Resu
     vault.remove_secret(CLOUD_SESSION_NAMESPACE, CLOUD_SESSION_PROVIDER)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn system_entry(account: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(SERVICE_NAME, account).context("open system credential vault")
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn write_system_secret(account: &str, secret: &str) -> Result<()> {
     system_entry(account)?
         .set_password(secret)
         .with_context(|| format!("write system credential vault {account}"))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn write_system_secret(_account: &str, _secret: &str) -> Result<()> {
     Err(anyhow!(
         "system credential vault is not supported on this platform"
     ))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn read_system_secret(account: &str) -> Result<Option<String>> {
     match system_entry(account)?.get_password() {
         Ok(secret) => Ok(Some(secret)),
@@ -155,14 +155,14 @@ fn read_system_secret(account: &str) -> Result<Option<String>> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn read_system_secret(_account: &str) -> Result<Option<String>> {
     Err(anyhow!(
         "system credential vault is not supported on this platform"
     ))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn delete_system_secret(account: &str) -> Result<()> {
     match system_entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -170,7 +170,7 @@ fn delete_system_secret(account: &str) -> Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn delete_system_secret(_account: &str) -> Result<()> {
     Err(anyhow!(
         "system credential vault is not supported on this platform"

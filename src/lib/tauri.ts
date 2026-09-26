@@ -119,13 +119,8 @@ export async function updateConfig(config: AppConfig): Promise<void> {
 }
 
 export type RecordingLimitMode = 'auto' | 'custom'
-export type SttTransport = 'fileUpload' | 'streaming' | 'localBuffered' | 'managedUpload'
-export type RecordingLimitSource =
-  | 'provider'
-  | 'managedProduct'
-  | 'clientBuffer'
-  | 'productSafety'
-  | 'unknownUpstream'
+export type SttTransport = 'fileUpload' | 'streaming' | 'localBuffered'
+export type RecordingLimitSource = 'provider' | 'clientBuffer' | 'productSafety' | 'unknownUpstream'
 
 export interface SttRecordingCapability {
   registryVersion: number
@@ -153,16 +148,6 @@ export async function getSttRecordingCapability(
   return invoke('get_stt_recording_capability', { provider, mode, customSeconds })
 }
 
-export type LlmModelCapability = 'certified' | 'best_effort' | 'unknown'
-
-export async function getLlmModelCapability(
-  provider: string,
-  baseUrl: string,
-  model: string,
-): Promise<LlmModelCapability> {
-  return invoke('get_llm_model_capability', { provider, baseUrl, model })
-}
-
 export interface CredentialStatus {
   namespace: string
   provider: string
@@ -172,28 +157,31 @@ export interface CredentialStatus {
 }
 
 export async function getCredentialStatus(
-  namespace: 'stt' | 'llm',
+  namespace: 'stt' | 'llm' | 'sync',
   provider: string,
 ): Promise<CredentialStatus> {
   return invoke('get_credential_status', { namespace, provider })
 }
 
 export async function readCredential(
-  namespace: 'stt' | 'llm',
+  namespace: 'stt' | 'llm' | 'sync',
   provider: string,
 ): Promise<string | null> {
   return invoke('read_credential', { namespace, provider })
 }
 
 export async function setCredential(
-  namespace: 'stt' | 'llm',
+  namespace: 'stt' | 'llm' | 'sync',
   provider: string,
   value: string,
 ): Promise<void> {
   return invoke('set_credential', { namespace, provider, value })
 }
 
-export async function clearCredential(namespace: 'stt' | 'llm', provider: string): Promise<void> {
+export async function clearCredential(
+  namespace: 'stt' | 'llm' | 'sync',
+  provider: string,
+): Promise<void> {
   return invoke('clear_credential', { namespace, provider })
 }
 
@@ -247,7 +235,7 @@ export interface HotkeyRoleStatus {
 }
 
 export interface HotkeyCapability {
-  platform: 'macos' | 'windows' | 'linux' | 'unknown' | string
+  platform: 'windows' | 'linux' | 'unknown' | string
   sessionType: 'wayland' | 'x11' | 'unknown' | string
   supportsGlobalHotkey: boolean
   supportsHoldMode: boolean
@@ -296,7 +284,7 @@ export interface SttProviderDiagnosticIssue {
 
 export interface SttProviderDiagnostics {
   provider: string
-  kind: 'localCompatible' | 'builtinLocal' | 'byokRemote' | 'cloudManaged' | 'unknown'
+  kind: 'localCompatible' | 'builtinLocal' | 'byokRemote' | 'unknown'
   endpoint: string | null
   model: string | null
   requiresApiKey: boolean
@@ -620,29 +608,30 @@ export async function setAutoStart(enabled: boolean): Promise<void> {
   return invoke('set_auto_start', { enabled })
 }
 
-// macOS Accessibility permission
-export async function checkAccessibilityPermission(): Promise<boolean> {
-  return invoke('check_accessibility_permission')
+// WebDAV settings sync
+export interface WebDavTestResult {
+  ok: boolean
+  remoteExists: boolean
+  message: string
 }
 
-export async function requestAccessibilityPermission(): Promise<boolean> {
-  return invoke('request_accessibility_permission')
+export async function webdavTestConnection(
+  url: string,
+  username: string,
+): Promise<WebDavTestResult> {
+  return invoke('webdav_test_connection', { url, username })
 }
 
-export async function waitForAccessibilityPermission({
-  timeoutMs = 60_000,
-  intervalMs = 1_000,
-}: {
-  timeoutMs?: number
-  intervalMs?: number
-} = {}): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
+export async function webdavUploadBackup(
+  url: string,
+  username: string,
+  payload: string,
+): Promise<void> {
+  return invoke('webdav_upload_backup', { url, username, payload })
+}
 
-  while (true) {
-    const trusted = await checkAccessibilityPermission()
-    if (trusted || Date.now() >= deadline) return trusted
-    await new Promise((resolve) => setTimeout(resolve, intervalMs))
-  }
+export async function webdavDownloadBackup(url: string, username: string): Promise<string> {
+  return invoke('webdav_download_backup', { url, username })
 }
 
 // Onboarding persistence via tauri-plugin-store

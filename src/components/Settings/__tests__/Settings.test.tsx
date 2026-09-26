@@ -113,9 +113,6 @@ vi.mock('../../../lib/tauri', () => ({
   abortAskDictation: vi.fn().mockResolvedValue(undefined),
   pauseHotkey: vi.fn().mockResolvedValue(undefined),
   resumeHotkey: vi.fn().mockResolvedValue(undefined),
-  checkAccessibilityPermission: vi.fn().mockResolvedValue(true),
-  requestAccessibilityPermission: vi.fn().mockResolvedValue(true),
-  waitForAccessibilityPermission: vi.fn().mockResolvedValue(true),
   getPlatformCapabilities: vi.fn().mockResolvedValue({
     os: 'macos',
     sessionType: 'unknown',
@@ -191,7 +188,6 @@ vi.mock('../../../lib/tauri', () => ({
   readCredential: vi.fn().mockResolvedValue(null),
   setCredential: vi.fn().mockResolvedValue(undefined),
   fetchLlmModels: vi.fn().mockResolvedValue(['gpt-4o', 'gpt-3.5-turbo']),
-  getLlmModelCapability: vi.fn().mockResolvedValue('unknown'),
   addDictionaryEntry: vi.fn().mockResolvedValue(undefined),
   updateDictionaryEntry: vi.fn().mockResolvedValue(undefined),
   removeDictionaryEntry: vi.fn().mockResolvedValue(undefined),
@@ -252,7 +248,6 @@ vi.mock('../../../stores/authStore', () => ({
 // ─── Import components AFTER mocks ───────────────────────────────────────────
 import { Settings } from '../index'
 import {
-  checkAccessibilityPermission,
   getConfig,
   getHotkeyRegistrationError,
   listCustomAppMappings,
@@ -436,9 +431,6 @@ describe('Settings tab 切换', () => {
       value: 'MacIntel',
       configurable: true,
     })
-    const mockCheckAccessibilityPermission = vi.mocked(checkAccessibilityPermission)
-    mockCheckAccessibilityPermission.mockClear()
-    mockCheckAccessibilityPermission.mockResolvedValueOnce(false)
 
     try {
       renderSettings()
@@ -446,7 +438,6 @@ describe('Settings tab 切换', () => {
       expect(screen.queryByText('settings.accessibilityPermission')).toBeNull()
       expect(screen.queryByText('settings.accessibilityRequired')).toBeNull()
       expect(screen.queryByText('settings.grantPermission')).toBeNull()
-      expect(mockCheckAccessibilityPermission).not.toHaveBeenCalled()
     } finally {
       Object.defineProperty(window.navigator, 'platform', {
         value: originalPlatform,
@@ -490,31 +481,6 @@ describe('Settings tab 切换', () => {
     expect(await screen.findByText('settings.hotkeyConflict')).toBeDefined()
   })
 
-  it('does not duplicate an Accessibility-limited Fn registration failure', () => {
-    const originalPlatform = window.navigator.platform
-    Object.defineProperty(window.navigator, 'platform', {
-      value: 'MacIntel',
-      configurable: true,
-    })
-    useAppStore.getState().setAccessibilityTrusted(false)
-    useAppStore
-      .getState()
-      .setHotkeyRegistrationError(
-        'Failed to create macOS native hotkey EventTap; Accessibility permission may be denied',
-      )
-
-    try {
-      renderSettings()
-
-      expect(screen.queryByText('settings.hotkeyRegistrationFailed')).toBeNull()
-    } finally {
-      Object.defineProperty(window.navigator, 'platform', {
-        value: originalPlatform,
-        configurable: true,
-      })
-    }
-  })
-
   it('keeps unrelated shortcut registration failures visible', () => {
     const originalPlatform = window.navigator.platform
     Object.defineProperty(window.navigator, 'platform', {
@@ -551,35 +517,6 @@ describe('Settings tab 切换', () => {
       expect(useAppStore.getState().hotkeyRegistrationError).toBeNull()
     })
     expect(screen.queryByText('settings.hotkeyRegistrationFailed')).toBeNull()
-  })
-
-  it('re-registers failed Fn hotkeys after macOS Accessibility permission is granted', async () => {
-    const originalPlatform = window.navigator.platform
-    Object.defineProperty(window.navigator, 'platform', {
-      value: 'MacIntel',
-      configurable: true,
-    })
-    const { resumeHotkey } = await import('../../../lib/tauri')
-    useAppStore.getState().setAccessibilityTrusted(true)
-    useAppStore
-      .getState()
-      .setHotkeyRegistrationError(
-        'Failed to create macOS native hotkey EventTap; Accessibility permission may be denied',
-      )
-
-    try {
-      renderSettings()
-
-      await waitFor(() => {
-        expect(resumeHotkey).toHaveBeenCalled()
-      })
-      expect(useAppStore.getState().hotkeyRegistrationError).toBeNull()
-    } finally {
-      Object.defineProperty(window.navigator, 'platform', {
-        value: originalPlatform,
-        configurable: true,
-      })
-    }
   })
 
   it('General pane does not expose the optional Ask hotkey disable action', () => {
@@ -752,41 +689,6 @@ describe('Settings tab 切换', () => {
     const titles = screen.getAllByText('settings.dictionary')
     // 至少出现两次：sidebar nav 和 title bar h2
     expect(titles.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('records macOS Ask hotkey as a local draft without immediate persistence', async () => {
-    vi.useFakeTimers()
-    try {
-      Object.defineProperty(window.navigator, 'platform', {
-        value: 'MacIntel',
-        configurable: true,
-      })
-      const { resumeHotkey, updateAskHotkey } = await import('../../../lib/tauri')
-      const mockUpdateAskHotkey = vi.mocked(updateAskHotkey)
-      const mockResumeHotkey = vi.mocked(resumeHotkey)
-      mockUpdateAskHotkey.mockClear()
-      mockResumeHotkey.mockClear()
-      useAppStore.getState().updateConfig({ ask_hotkey: 'Command+.' })
-      seedSavedConfig()
-
-      renderSettings()
-      fireEvent.click(screen.getByText('Command+.'))
-      await act(async () => {
-        await Promise.resolve()
-      })
-      fireEvent.keyDown(window, { key: ';', metaKey: true })
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1600)
-      })
-
-      expect(useAppStore.getState().config.ask_hotkey).toBe('Command+;')
-      expect(mockUpdateAskHotkey).not.toHaveBeenCalled()
-      expect(mockResumeHotkey).toHaveBeenCalledTimes(1)
-      expect(screen.getByText('Unsaved changes')).toBeDefined()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 })
 

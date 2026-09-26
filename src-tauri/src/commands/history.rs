@@ -4,9 +4,6 @@ use crate::credentials::{
 use crate::llm::{self, LlmConfig, PolishRequest};
 use crate::storage;
 use crate::stt::{self, whisper_compat::WhisperCompatProvider, SttConfig, SttProvider};
-use crate::SessionTokenStore;
-
-use super::ask::synthetic_operation_id;
 
 /// Maximum accepted size for a persisted failed recording (24 MB, matching
 /// the in-memory PCM cap of the Whisper-compatible providers).
@@ -35,11 +32,6 @@ fn build_retry_stt_config(config: &storage::AppConfig, api_key: String) -> SttCo
         sample_rate: 16000,
         resource_id: (config.stt_provider == stt::volcengine::VOLCENGINE_DOUBAO_PROVIDER)
             .then(|| config.stt_volcengine_resource_id.clone()),
-        operation_id: Some(synthetic_operation_id()),
-        managed_audio: stt::capabilities::managed_audio_encoding_config(
-            config,
-            chrono::Utc::now().timestamp(),
-        ),
         provider_region: (config.stt_provider == stt::aliyun_qwen3_asr::ALIYUN_QWEN3_ASR_PROVIDER)
             .then(|| config.stt_aliyun_qwen_region.clone()),
     }
@@ -54,7 +46,6 @@ pub async fn retry_history_stt(
     app: tauri::AppHandle,
     state: tauri::State<'_, storage::HistoryStore>,
     config_state: tauri::State<'_, storage::ConfigManager>,
-    token_store: tauri::State<'_, SessionTokenStore>,
     client: tauri::State<'_, reqwest::Client>,
     entry_id: i64,
 ) -> Result<RetrySttOutcome, String> {
@@ -86,7 +77,7 @@ pub async fn retry_history_stt(
     };
 
     // Primary transcription attempt using the persisted WAV as-is.
-    let transcript = transcribe_wav(&config, &token_store, &client, &wav_data).await;
+    let transcript = transcribe_wav(&config, &client, &wav_data).await;
     let raw_text = match transcript {
         Ok(text) => text,
         Err(error) => {
@@ -103,7 +94,7 @@ pub async fn retry_history_stt(
     };
 
     // AI polish (when enabled) — same provider decision as the dictation flow.
-    let polished_text = polish_retry_text(&config, &token_store, &app, &raw_text).await;
+    let polished_text = polish_retry_text(&config, &app, &raw_text).await;
 
     state
         .update_retry_success(entry_id, &raw_text, &polished_text)
@@ -124,19 +115,10 @@ pub async fn retry_history_stt(
 /// For the custom OpenAI-compatible provider the fallback policy applies too.
 async fn transcribe_wav(
     config: &storage::AppConfig,
-    token_store: &SessionTokenStore,
     client: &reqwest::Client,
     _wav_data: &[u8],
 ) -> Result<String, anyhow::Error> {
-    let api_key = if config.stt_provider == "cloud" {
-        token_store
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    } else {
-        resolve_stt_config_secret(config, &SystemCredentialVault).unwrap_or_default()
-    };
+    let api_key = resolve_stt_config_secret(config, &SystemCredentialVault).unwrap_or_default();
     if stt::config::stt_provider_requires_api_key(&config.stt_provider) && api_key.is_empty() {
         anyhow::bail!("STT API key is not configured");
     }
@@ -165,9 +147,6 @@ async fn transcribe_wav(
                 client.clone(),
             )) as Box<dyn SttProvider>
         }
-        stt::config::APPLE_SPEECH_PROVIDER => {
-            anyhow::bail!("Re-transcription is not available for Apple Speech entries");
-        }
         "deepgram"
         | "assemblyai"
         | stt::volcengine::VOLCENGINE_DOUBAO_PROVIDER
@@ -192,23 +171,13 @@ async fn transcribe_wav(
 /// Falls back to the raw transcription when polish is disabled or fails.
 async fn polish_retry_text(
     config: &storage::AppConfig,
-    token_store: &SessionTokenStore,
     app: &tauri::AppHandle,
     raw_text: &str,
 ) -> String {
-    let llm_api_key = if config.llm_provider == "cloud" {
-        token_store
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    } else {
-        resolve_llm_config_secret(config, &SystemCredentialVault).unwrap_or_default()
-    };
+    let llm_api_key = resolve_llm_config_secret(config, &SystemCredentialVault).unwrap_or_default();
 
     if !config.polish_enabled
-        || (config.llm_provider != "cloud"
-            && !llm::has_usable_provider_credentials(&config.llm_provider, &llm_api_key))
+        || !llm::has_usable_provider_credentials(&config.llm_provider, &llm_api_key)
     {
         return raw_text.to_string();
     }
@@ -249,7 +218,6 @@ async fn polish_retry_text(
         translate_enabled: config.translate_enabled,
         target_lang: config.target_lang.clone(),
         selected_text: None,
-        operation_id: None,
         voice_intent: crate::voice_intent::VoiceIntent {
             kind: crate::voice_intent::VoiceIntentKind::DictateInsert,
             placement: crate::voice_intent::VoiceOutputPlacement::InsertAtCursor,
