@@ -42,6 +42,17 @@
 | Linux x64（X11 / Wayland） | ✅ 支持；Wayland 下全局快捷键受合成器限制，键盘直输推荐 X11 |
 | macOS | ❌ 已移除 |
 
+## 下载安装
+
+前往 [Releases](https://github.com/Ray4AI/opentypeless/releases) 下载对应平台的安装包：
+
+| 平台 | 包 |
+| --- | --- |
+| Windows | `OpenTypeless_x.x.x_x64-setup.exe`（NSIS）或 `.msi` |
+| Linux | `.AppImage`（推荐）或 `.deb`（Debian/Ubuntu） |
+
+安装包由 GitHub Actions 在打 `v*` tag 时自动构建（见 `.github/workflows/release.yml`），每次发布均附带两个平台产物。
+
 ## 构建与运行
 
 ```bash
